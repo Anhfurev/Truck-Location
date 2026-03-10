@@ -1,98 +1,425 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
-
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
-
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
-}
+import { LocationPermissionStep } from "@/components/LocationPermissionStep";
+import { ProfileSettingsModal } from "@/components/ProfileSettingsModal";
+import { ProfileSetupStep } from "@/components/ProfileSetupStep";
+import { TrackingControlDrawer } from "@/components/TrackingControlDrawer";
+import { TrackingMap } from "@/components/TrackingMap";
+import { useDriverProfile } from "@/hooks/use-driver-profile";
+import { useLocationTracking } from "@/hooks/use-location-tracking";
+import * as Location from "expo-location";
+import { Navigation, UserCircle2 } from "lucide-react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Alert,
+  AppState,
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "android" ? 12 : 0,
+    paddingBottom: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  headerIcon: {
+    width: 34,
+    height: 34,
+    backgroundColor: "#007AFF",
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTextWrap: {
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 18,
+    color: "#0f172a",
+  },
+  headerSubtitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748b",
+    lineHeight: 12,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 12,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  mainContent: {
+    flex: 1,
   },
 });
+
+type OnboardingStep = "location" | "profile" | "map";
+
+export default function Index() {
+  const { profile, updateProfile, resetProfile, isProfileComplete, isLoading } =
+    useDriverProfile();
+  const {
+    isTracking,
+    isLocating,
+    currentLocation,
+    startTracking,
+    stopTracking,
+  } = useLocationTracking(profile, isProfileComplete);
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isToggleBusy, setIsToggleBusy] = useState(false);
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  const [hasStartedOnboarding, setHasStartedOnboarding] = useState(false);
+  const [locationPopoverMessage, setLocationPopoverMessage] = useState<
+    string | null
+  >(null);
+  const appStateRef = useRef(AppState.currentState);
+  const waitingForSettingsReturn = useRef(false);
+  const hasCheckedSavedProfileRef = useRef(false);
+
+  const openDeviceLocationSettings = useCallback(async () => {
+    waitingForSettingsReturn.current = true;
+
+    if (Platform.OS === "android") {
+      try {
+        await Location.enableNetworkProviderAsync();
+        // User may have enabled GPS via the prompt; re-check immediately
+        waitingForSettingsReturn.current = false;
+        const ok = await Location.hasServicesEnabledAsync();
+        if (ok) {
+          setHasLocationPermission(true);
+        }
+        return;
+      } catch {
+        // Fall back to Android location settings when prompt isn't available.
+      }
+
+      try {
+        await Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS");
+        return;
+      } catch {
+        // Fall through to app settings.
+      }
+    }
+
+    await Linking.openSettings();
+  }, []);
+
+  const openAppLocationSettings = useCallback(async () => {
+    waitingForSettingsReturn.current = true;
+    await Linking.openSettings();
+  }, []);
+
+  useEffect(() => {
+    if (!locationPopoverMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setLocationPopoverMessage(null);
+    }, 2400);
+
+    return () => clearTimeout(timer);
+  }, [locationPopoverMessage]);
+
+  const checkLocationPermission = useCallback(
+    async (requestPermission: boolean) => {
+      const permission = requestPermission
+        ? await Location.requestForegroundPermissionsAsync()
+        : await Location.getForegroundPermissionsAsync();
+
+      if (permission.status !== "granted") {
+        setHasLocationPermission(false);
+
+        if (requestPermission) {
+          if (permission.canAskAgain) {
+            Alert.alert(
+              "Location зөвшөөрөл хэрэгтэй",
+              "Allow дээр дарж байж үргэлжилнэ.",
+              [{ text: "Ойлголоо" }],
+            );
+          } else {
+            Alert.alert(
+              "Location permission хаалттай",
+              "App settings рүү орж Location permission-г зөвшөөрнө үү.",
+              [
+                { text: "Болих", style: "cancel" },
+                {
+                  text: "Settings нээх",
+                  onPress: () => {
+                    openAppLocationSettings().catch(() => undefined);
+                  },
+                },
+              ],
+            );
+          }
+        }
+
+        return false;
+      }
+
+      let servicesEnabled = false;
+      try {
+        servicesEnabled = await Location.hasServicesEnabledAsync();
+      } catch {
+        servicesEnabled = false;
+      }
+      if (!servicesEnabled) {
+        setHasLocationPermission(false);
+        if (requestPermission) {
+          Alert.alert(
+            "GPS унтраалттай байна",
+            "Байршлын үйлчилгээ (GPS)-г асаагаад дахин оролдоно уу.",
+            [
+              { text: "Болих", style: "cancel" },
+              {
+                text: "Асаах",
+                onPress: () => {
+                  waitingForSettingsReturn.current = true;
+                  openDeviceLocationSettings().catch(() => undefined);
+                },
+              },
+            ],
+          );
+        }
+        return false;
+      }
+
+      setHasLocationPermission(true);
+      return true;
+    },
+    [openAppLocationSettings, openDeviceLocationSettings],
+  );
+
+  useEffect(() => {
+    checkLocationPermission(false).catch(() => setHasLocationPermission(false));
+  }, [checkLocationPermission]);
+
+  // Re-check location permission + GPS when app comes back from settings
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        if (waitingForSettingsReturn.current) {
+          waitingForSettingsReturn.current = false;
+          checkLocationPermission(false)
+            .then((ok: boolean) => {
+              if (!ok) {
+                setLocationPopoverMessage(
+                  "GPS эсвэл Location permission асаана уу",
+                );
+              }
+            })
+            .catch(() => setHasLocationPermission(false));
+        }
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, [checkLocationPermission]);
+
+  useEffect(() => {
+    if (isLoading || hasCheckedSavedProfileRef.current) {
+      return;
+    }
+
+    hasCheckedSavedProfileRef.current = true;
+    if (isProfileComplete) {
+      setHasStartedOnboarding(true);
+    }
+  }, [isLoading, isProfileComplete]);
+
+  const currentStep: OnboardingStep = useMemo(() => {
+    if (!hasLocationPermission) return "location";
+    if (!isProfileComplete) return "profile";
+    if (!hasStartedOnboarding) return "profile";
+    return "map";
+  }, [hasLocationPermission, isProfileComplete, hasStartedOnboarding]);
+
+  const toggleTracking = async (enabled: boolean) => {
+    if (isToggleBusy) {
+      return;
+    }
+
+    setIsToggleBusy(true);
+    try {
+      if (enabled) {
+        const canUseLocation = await checkLocationPermission(true);
+        if (!canUseLocation) {
+          setLocationPopoverMessage(
+            "Location permission болон GPS-ээ асаана уу",
+          );
+          return;
+        }
+
+        const started = await startTracking();
+        if (!started) {
+          setLocationPopoverMessage("Location-оо асаана уу");
+          stopTracking();
+        }
+      } else {
+        stopTracking();
+      }
+    } finally {
+      setIsToggleBusy(false);
+    }
+  };
+
+  const handleContinueToMap = async () => {
+    if (isProfileComplete) {
+      const canUseLocation = await checkLocationPermission(true);
+      if (!canUseLocation) {
+        setLocationPopoverMessage("Location permission болон GPS-ээ асаана уу");
+        setHasLocationPermission(false);
+        return;
+      }
+
+      setHasLocationPermission(true);
+      setHasStartedOnboarding(true);
+    }
+  };
+
+  const mapCenter = useMemo((): [number, number] | null => {
+    if (currentLocation) {
+      return [currentLocation.latitude, currentLocation.longitude];
+    }
+    return null;
+  }, [currentLocation]);
+
+  const handleRequestLocation = async () => {
+    try {
+      const ok = await checkLocationPermission(true);
+      if (!ok) {
+        setLocationPopoverMessage("Location permission болон GPS-ээ асаана уу");
+      }
+    } catch {
+      setHasLocationPermission(false);
+      Alert.alert(
+        "Location алдаа",
+        "Location тохиргоог нээгээд зөвшөөрөл болон GPS-ээ шалгана уу.",
+        [
+          { text: "Болих", style: "cancel" },
+          {
+            text: "Settings нээх",
+            onPress: () => {
+              openAppLocationSettings().catch(() => undefined);
+            },
+          },
+        ],
+      );
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+      {/* Header (on location and map steps) */}
+      {(currentStep === "location" || currentStep === "map") && (
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View style={styles.headerIcon}>
+              <Navigation size={17} color="white" />
+            </View>
+            <View style={styles.headerTextWrap}>
+              <Text style={styles.headerTitle}>Truck</Text>
+              <Text style={styles.headerSubtitle}>Location</Text>
+            </View>
+          </View>
+
+          {currentStep === "map" && (
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => setShowProfileSettings(true)}
+            >
+              <UserCircle2 size={24} color="#0f172a" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      <View style={styles.mainContent}>
+        {currentStep === "location" && (
+          <LocationPermissionStep onRequestLocation={handleRequestLocation} />
+        )}
+
+        {currentStep === "profile" && (
+          <ProfileSetupStep
+            profile={profile}
+            onUpdate={updateProfile}
+            isProfileComplete={isProfileComplete}
+            onContinue={handleContinueToMap}
+          />
+        )}
+
+        {currentStep === "map" && (
+          <TrackingMap
+            center={mapCenter}
+            isTracking={isTracking}
+            isLocating={isLocating}
+            isBusy={isToggleBusy}
+            onToggleTracking={toggleTracking}
+            onOpenDrawer={() => setIsDrawerOpen(true)}
+            locationPopoverMessage={locationPopoverMessage}
+          />
+        )}
+      </View>
+
+      {/* Control Drawer */}
+      <TrackingControlDrawer
+        visible={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        isTracking={isTracking}
+        isBusy={isToggleBusy}
+        onToggleTracking={toggleTracking}
+        locationPopoverMessage={locationPopoverMessage}
+      />
+
+      {/* Profile Settings Modal */}
+      <ProfileSettingsModal
+        visible={showProfileSettings}
+        onClose={() => setShowProfileSettings(false)}
+        profile={profile}
+        onUpdate={updateProfile}
+        onResetProfile={resetProfile}
+      />
+    </SafeAreaView>
+  );
+}
