@@ -2,13 +2,7 @@
 
 import { DriverProfileForm } from "@/components/DriverProfileForm";
 import { DriverProfile } from "@/types/DriverProfile";
-import {
-  CircleAlert,
-  LogOut,
-  ShieldCheck,
-  UserCircle2,
-  X,
-} from "lucide-react-native";
+import { CircleAlert, Cpu, LogOut, ShieldCheck, X } from "lucide-react-native";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
@@ -30,7 +24,7 @@ interface ProfileSettingsModalProps {
   onClose: () => void;
   profile: DriverProfile;
   onUpdate: (updates: Partial<DriverProfile>) => void;
-  onResetProfile: () => Promise<void>;
+  onDeleteAccount: () => Promise<void>;
 }
 
 const PRIMARY_BLUE = "#2563eb";
@@ -40,7 +34,7 @@ export function ProfileSettingsModal({
   onClose,
   profile,
   onUpdate,
-  onResetProfile,
+  onDeleteAccount,
 }: ProfileSettingsModalProps) {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
@@ -100,30 +94,29 @@ export function ProfileSettingsModal({
                     <View style={styles.heroCard}>
                       <View style={styles.heroTopRow}>
                         <View style={styles.profileAvatar}>
-                          {profile.firstName ? (
+                          {profile.carNumber ? (
                             <Text style={styles.profileAvatarText}>
-                              {profile.firstName?.[0]?.toUpperCase()}
+                              {profile.carNumber.slice(0, 2).toUpperCase()}
                             </Text>
                           ) : (
-                            <UserCircle2 size={28} color={PRIMARY_BLUE} />
+                            <Cpu size={28} color={PRIMARY_BLUE} />
                           )}
                         </View>
                         <View style={styles.heroTextWrap}>
                           <Text style={styles.profileName}>
-                            {profile.firstName || profile.lastName
-                              ? `${profile.firstName} ${profile.lastName}`.trim()
-                              : "Жолоочийн профайл"}
+                            {profile.carNumber || "Машины профайл"}
                           </Text>
                           <Text style={styles.profileCompany}>
-                            {profile.company || "Компани сонгоогүй байна"}
+                            {profile.carNumber ||
+                              "Улсын дугаар оруулаагүй байна"}
                           </Text>
                         </View>
                       </View>
                       <View style={styles.infoRow}>
                         <ShieldCheck size={16} color="#2563eb" />
                         <Text style={styles.infoText}>
-                          Эндээс жолоочийн мэдээллээ шинэчилж, машин болон
-                          холбоо барих мэдээллээ ойлгомжтой байдлаар удирдана.
+                          Эндээс машины улсын дугаараа шинэчилж, background
+                          tracking төлөвөө тогтвортой хадгална.
                         </Text>
                       </View>
                     </View>
@@ -131,7 +124,7 @@ export function ProfileSettingsModal({
                     <View style={styles.sectionHeader}>
                       <Text style={styles.sectionTitle}>Үндсэн мэдээлэл</Text>
                       <Text style={styles.sectionDescription}>
-                        Доорх талбаруудыг шинэчлэхэд таны профайл шууд
+                        Доорх талбарыг шинэчлэхэд таны tracking профайл шууд
                         хадгалагдана.
                       </Text>
                     </View>
@@ -148,7 +141,6 @@ export function ProfileSettingsModal({
                     profile={profile}
                     onUpdate={onUpdate}
                     isEditing={true}
-                    hideBio={true}
                   />
                 </View>
 
@@ -163,36 +155,29 @@ export function ProfileSettingsModal({
                       нөлөөлнө.
                     </Text>
 
-                    {__DEV__ && (
-                      <TouchableOpacity
-                        style={[styles.secondaryButton, styles.resetButton]}
-                        onPress={() => {
-                          Alert.alert(
-                            "Reset profile",
-                            "This will clear saved profile and show first page again.",
-                            [
-                              { text: "Cancel", style: "cancel" },
-                              {
-                                text: "Reset",
-                                style: "destructive",
-                                onPress: async () => {
-                                  await onResetProfile();
-                                  onClose();
-                                },
-                              },
-                            ],
-                          );
-                        }}
-                      >
-                        <Text style={styles.secondaryButtonText}>
-                          Reset Profile (Dev)
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
                     <TouchableOpacity
                       style={[styles.secondaryButton, styles.deleteButton]}
-                      onPress={onClose}
+                      onPress={() => {
+                        Alert.alert(
+                          "Профайл устгах уу?",
+                          "Хадгалсан улсын дугаар устаж, апп эхний мэдээллийн хэсэг рүү буцна.",
+                          [
+                            { text: "Болих", style: "cancel" },
+                            {
+                              text: "Тийм, устга",
+                              style: "destructive",
+                              onPress: () => {
+                                onDeleteAccount().catch((error) => {
+                                  console.error(
+                                    "Failed to delete profile:",
+                                    error,
+                                  );
+                                });
+                              },
+                            },
+                          ],
+                        );
+                      }}
                     >
                       <LogOut size={18} color="#b91c1c" />
                       <Text
@@ -201,7 +186,7 @@ export function ProfileSettingsModal({
                           styles.deleteButtonText,
                         ]}
                       >
-                        Данс устгах
+                        Профайл устгах
                       </Text>
                     </TouchableOpacity>
                   </View>

@@ -32,7 +32,6 @@ export function ProfileSetupStep({
   onContinue,
 }: ProfileSetupStepProps) {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [showErrors, setShowErrors] = useState(false);
 
   const validationErrors = useMemo(
     () => validateDriverProfile(profile),
@@ -42,15 +41,25 @@ export function ProfileSetupStep({
 
   const handleContinue = () => {
     if (hasValidationErrors) {
-      setShowErrors(true);
       Alert.alert(
         "Мэдээлэл буруу байна",
-        "Талбаруудыг зөв бөглөж дахин оролдоно уу.",
+        validationErrors.carNumber ??
+          "Талбаруудыг зөв бөглөж дахин оролдоно уу.",
       );
       return;
     }
 
-    onContinue();
+    Alert.alert(
+      "Улсын дугаар баталгаажуулах",
+      `Та ${profile.carNumber} гэсэн улсын дугаартай үргэлжлүүлэх үү?`,
+      [
+        { text: "Засах", style: "cancel" },
+        {
+          text: "Тийм, зөв",
+          onPress: onContinue,
+        },
+      ],
+    );
   };
 
   useEffect(() => {
@@ -92,7 +101,8 @@ export function ProfileSetupStep({
                 </View>
                 <Text style={styles.stepTitle}>Миний мэдээлэл</Text>
                 <Text style={styles.stepDescription}>
-                  Тээврийн хэрэгсэл болон өөрийн мэдээллийг оруулна уу.
+                  Машины улсын дугаараа оруулаад, эхлэхийн өмнө дахин шалгаж
+                  баталгаажуулна уу. Development үед англи үсэг түр зөвшөөрнө.
                 </Text>
               </View>
             )}
@@ -102,26 +112,22 @@ export function ProfileSetupStep({
                 profile={profile}
                 onUpdate={onUpdate}
                 isEditing={true}
-                errors={showErrors ? validationErrors : undefined}
               />
             </View>
 
-            {!isKeyboardVisible && (
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  {
-                    opacity:
-                      !hasValidationErrors && isProfileComplete ? 1 : 0.5,
-                    marginTop: 14,
-                    marginBottom: Platform.OS === "android" ? 16 : 12,
-                  },
-                ]}
-                onPress={handleContinue}
-              >
-                <Text style={styles.buttonText}>Эхлэх</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[
+                styles.button,
+                {
+                  opacity: !hasValidationErrors && isProfileComplete ? 1 : 0.5,
+                  marginTop: 14,
+                  marginBottom: Platform.OS === "android" ? 16 : 12,
+                },
+              ]}
+              onPress={handleContinue}
+            >
+              <Text style={styles.buttonText}>Эхлэх</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

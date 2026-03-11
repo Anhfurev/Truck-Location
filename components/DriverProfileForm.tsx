@@ -1,11 +1,10 @@
 import { DriverProfile } from "@/types/DriverProfile";
-import { Building2, Car, FileText, Phone, User } from "lucide-react-native";
+import { Car } from "lucide-react-native";
 import React from "react";
 import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -15,17 +14,9 @@ interface DriverProfileFormProps {
   onUpdate: (updates: Partial<DriverProfile>) => void;
   isEditing?: boolean;
   compact?: boolean;
-  hideBio?: boolean;
-  errors?: Partial<Record<keyof DriverProfile, string>>;
 }
 
-const COMPANIES = [
-  "Свифт Ложистик",
-  "Улаанбаатар Экспресс",
-  "Эко Транс",
-  "Блью Скай",
-  "Глобал Вэй",
-];
+const CAR_NUMBER_RULE = /^\d{4}[A-ZА-ЯӨҮЁ]{3}$/u;
 
 const styles = StyleSheet.create({
   container: {
@@ -93,69 +84,28 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 13,
   },
-  inputError: {
-    borderColor: "#ef4444",
-  },
-  errorText: {
-    color: "#dc2626",
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  textArea: {
-    borderWidth: 2,
-    borderColor: "#e5e5e5",
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    fontSize: 13,
-    backgroundColor: "#fff",
-    minHeight: 84,
-    maxHeight: 84,
-    textAlignVertical: "top",
-  },
-  textAreaCompact: {
-    minHeight: 74,
-    maxHeight: 74,
-    fontSize: 13,
-  },
-  chipsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
-  },
-  chipsWrapCompact: {
-    gap: 8,
-    marginTop: 6,
-  },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#eef2f7",
+  helperCard: {
+    marginTop: 8,
+    borderRadius: 10,
+    backgroundColor: "#f8fafc",
     borderWidth: 1,
-    borderColor: "#dbe4ee",
-  },
-  chipCompact: {
+    borderColor: "#e2e8f0",
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 8,
   },
-  chipSelected: {
-    backgroundColor: "#007AFF",
-    borderColor: "#007AFF",
-  },
-  chipText: {
-    color: "#1f2937",
+  helperText: {
     fontSize: 11,
-    fontWeight: "600",
+    lineHeight: 16,
+    color: "#475569",
+    fontWeight: "500",
+    textAlign: "center",
   },
-  chipTextCompact: {
+  successText: {
+    color: "#15803d",
     fontSize: 11,
-  },
-  chipTextSelected: {
-    color: "white",
+    marginTop: 6,
+    fontWeight: "700",
+    textAlign: "center",
   },
 });
 
@@ -164,101 +114,18 @@ export function DriverProfileForm({
   onUpdate,
   isEditing = true,
   compact = false,
-  hideBio = false,
-  errors = {},
 }: DriverProfileFormProps) {
   const { width } = useWindowDimensions();
   const isNarrowScreen = width <= 360;
   const effectiveCompact = compact || isNarrowScreen;
   const iconSize = effectiveCompact ? 14 : 16;
+  const normalizedCarNumber = profile.carNumber
+    .replace(/\s+/g, "")
+    .toUpperCase();
+  const isValidCarNumber = CAR_NUMBER_RULE.test(normalizedCarNumber);
 
   return (
     <View style={styles.container}>
-      <View
-        style={[
-          styles.row,
-          effectiveCompact && styles.rowCompact,
-          isNarrowScreen && styles.rowStacked,
-        ]}
-      >
-        <View style={styles.half}>
-          <View
-            style={[
-              styles.labelRow,
-              effectiveCompact && styles.labelRowCompact,
-            ]}
-          >
-            <User size={iconSize} color="#666" />
-            <Text style={styles.labelText}>Овог</Text>
-          </View>
-          <TextInput
-            style={[
-              styles.input,
-              effectiveCompact && styles.inputCompact,
-              !!errors.lastName && styles.inputError,
-            ]}
-            placeholder="Овог"
-            value={profile.lastName}
-            onChangeText={(text) => onUpdate({ lastName: text })}
-            editable={isEditing}
-          />
-          {!!errors.lastName && (
-            <Text style={styles.errorText}>{errors.lastName}</Text>
-          )}
-        </View>
-
-        <View style={styles.half}>
-          <View
-            style={[
-              styles.labelRow,
-              effectiveCompact && styles.labelRowCompact,
-            ]}
-          >
-            <User size={iconSize} color="#666" />
-            <Text style={styles.labelText}>Нэр</Text>
-          </View>
-          <TextInput
-            style={[
-              styles.input,
-              effectiveCompact && styles.inputCompact,
-              !!errors.firstName && styles.inputError,
-            ]}
-            placeholder="Нэр"
-            value={profile.firstName}
-            onChangeText={(text) => onUpdate({ firstName: text })}
-            editable={isEditing}
-          />
-          {!!errors.firstName && (
-            <Text style={styles.errorText}>{errors.firstName}</Text>
-          )}
-        </View>
-      </View>
-
-      <View
-        style={[
-          styles.fieldContainer,
-          effectiveCompact && styles.fieldContainerCompact,
-        ]}
-      >
-        <View style={styles.label}>
-          <Phone size={iconSize} color="#666" />
-          <Text style={styles.labelText}>Утасны дугаар</Text>
-        </View>
-        <TextInput
-          style={[
-            styles.input,
-            effectiveCompact && styles.inputCompact,
-            !!errors.phone && styles.inputError,
-          ]}
-          placeholder="Утасны дугаар..."
-          value={profile.phone}
-          onChangeText={(text) => onUpdate({ phone: text })}
-          editable={isEditing}
-          keyboardType="phone-pad"
-        />
-        {!!errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
-      </View>
-
       <View
         style={[
           styles.fieldContainer,
@@ -273,88 +140,30 @@ export function DriverProfileForm({
           style={[
             styles.input,
             effectiveCompact && styles.inputCompact,
-            !!errors.carPlate && styles.inputError,
             { textTransform: "uppercase" },
           ]}
-          placeholder="Ж нь: 1234 УБА"
-          value={profile.carPlate}
-          onChangeText={(text) => onUpdate({ carPlate: text.toUpperCase() })}
+          placeholder="Ж нь: 1123УНА"
+          value={profile.carNumber}
+          onChangeText={(text) =>
+            onUpdate({ carNumber: text.replace(/\s+/g, "").toUpperCase() })
+          }
           editable={isEditing}
           autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={7}
         />
-        {!!errors.carPlate && (
-          <Text style={styles.errorText}>{errors.carPlate}</Text>
+        <View style={styles.helperCard}>
+          <Text style={styles.helperText}>
+            Дүрэм: 4 тоо + 3 үсэг оруулна. Development үед кирилл эсвэл англи
+            үсэг байж болно. Жишээ: 1123УНА, 1123UNA
+          </Text>
+        </View>
+        {normalizedCarNumber.length > 0 && isValidCarNumber && (
+          <Text style={styles.successText}>
+            Улсын дугаарын формат зөв байна.
+          </Text>
         )}
       </View>
-
-      <View
-        style={[
-          styles.fieldContainer,
-          effectiveCompact && styles.fieldContainerCompact,
-        ]}
-      >
-        <View style={styles.label}>
-          <Building2 size={iconSize} color="#666" />
-          <Text style={styles.labelText}>Ажилладаг компани</Text>
-        </View>
-        <View
-          style={[
-            styles.chipsWrap,
-            effectiveCompact && styles.chipsWrapCompact,
-          ]}
-        >
-          {COMPANIES.map((company) => (
-            <TouchableOpacity
-              key={company}
-              onPress={() => onUpdate({ company })}
-              style={[
-                styles.chip,
-                effectiveCompact && styles.chipCompact,
-                profile.company === company && styles.chipSelected,
-              ]}
-              disabled={!isEditing}
-            >
-              <Text
-                style={[
-                  styles.chipText,
-                  effectiveCompact && styles.chipTextCompact,
-                  profile.company === company && styles.chipTextSelected,
-                ]}
-              >
-                {company}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {!!errors.company && (
-          <Text style={styles.errorText}>{errors.company}</Text>
-        )}
-      </View>
-
-      {!hideBio && (
-        <View
-          style={[
-            styles.fieldContainer,
-            effectiveCompact && styles.fieldContainerCompact,
-          ]}
-        >
-          <View style={styles.label}>
-            <FileText size={iconSize} color="#666" />
-            <Text style={styles.labelText}>Нэмэлт тайлбар</Text>
-          </View>
-          <TextInput
-            style={[
-              styles.textArea,
-              effectiveCompact && styles.textAreaCompact,
-            ]}
-            placeholder="Өөрийн тухай товч мэдээлэл..."
-            value={profile.bio}
-            onChangeText={(text) => onUpdate({ bio: text })}
-            editable={isEditing}
-            multiline
-          />
-        </View>
-      )}
     </View>
   );
 }

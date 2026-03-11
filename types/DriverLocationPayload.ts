@@ -1,26 +1,19 @@
-export interface DriverTrackingLocation {
-  latitude: number;
-  longitude: number;
-  accuracyMeters: number | null;
-}
-
-export interface DriverTrackingIdentity {
-  id: string;
-  fullName: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  carPlate: string;
-  company: string;
-  bio: string;
+export interface DriverLocationOther {
+  ignitionStatus: boolean | null;
+  batteryVoltage: number | null;
+  gpsAccuracyHdop: number | null;
+  satellitesInView: number | null;
+  gsmSignalStrengthDbm: number | null;
+  eventCode: number | null;
 }
 
 export interface DriverLocationPayload {
-  schemaVersion: 1;
-  source: "expo-location";
-  status: "online" | "offline";
-  recordedAt: string;
-  recordedAtUnixMs: number;
-  driver: DriverTrackingIdentity;
-  location: DriverTrackingLocation;
+  carNumber: string;
+  deviceId: string;
+  timestamp: string;
+  latitude: number;
+  longitude: number;
+  speed: number | null;
+  headingDegree: number | null;
+  other: DriverLocationOther | null;
 }

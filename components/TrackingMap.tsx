@@ -1,6 +1,7 @@
 // /Users/macbook/Documents/GitHub/trucklocation/components/TrackingMap.tsx
 
 import { LiveMap } from "@/components/LiveMap";
+import { TrackingDebugStatus } from "@/lib/location-tracking-service";
 import { Activity, ChevronUp } from "lucide-react-native";
 import React, { useEffect, useRef } from "react";
 import {
@@ -20,6 +21,7 @@ interface TrackingMapProps {
   onToggleTracking: (value: boolean) => void;
   onOpenDrawer: () => void;
   locationPopoverMessage?: string | null;
+  trackingDebugStatus?: TrackingDebugStatus | null;
 }
 
 export function TrackingMap({
@@ -30,6 +32,7 @@ export function TrackingMap({
   onToggleTracking,
   onOpenDrawer,
   locationPopoverMessage,
+  trackingDebugStatus,
 }: TrackingMapProps) {
   const overlayOpacity = useRef(new Animated.Value(0.22)).current;
 

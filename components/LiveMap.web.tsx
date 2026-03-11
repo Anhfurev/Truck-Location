@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useMemo } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { WebView } from "react-native-webview";
 
 interface MapViewProps {
   center: [number, number] | null;
@@ -17,7 +16,7 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
 <style>
-html,body{margin:0;padding:0;height:100%;overflow:hidden}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#f0f4f8}
 #map{width:100%;height:100%}
 .pulse-marker{width:20px;height:20px;border-radius:50%;background:rgba(37,99,235,0.22);border:2px solid rgba(37,99,235,0.45);display:flex;align-items:center;justify-content:center}
 .pulse-marker .dot{width:10px;height:10px;border-radius:50%;background:#2563eb}
@@ -28,16 +27,8 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden}
 var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${lat},${lng}],${zoom});
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 var icon=L.divIcon({className:'',html:'<div class="pulse-marker"><div class="dot"></div></div>',iconSize:[20,20],iconAnchor:[10,10]});
-var marker=null;
-var circle=null;
-function updatePos(lat,lng){
-  if(marker){marker.setLatLng([lat,lng]);circle.setLatLng([lat,lng]);}
-  else{circle=L.circle([lat,lng],{radius:36,color:'rgba(37,99,235,0.45)',fillColor:'rgba(37,99,235,0.14)',fillOpacity:0.5,weight:2}).addTo(map);marker=L.marker([lat,lng],{icon:icon}).addTo(map);}
-  map.panTo([lat,lng],{animate:true,duration:0.5});
-}
-updatePos(${lat},${lng});
-document.addEventListener('message',function(e){try{var d=JSON.parse(e.data);if(d.type==='move')updatePos(d.lat,d.lng);}catch(ex){}});
-window.addEventListener('message',function(e){try{var d=JSON.parse(e.data);if(d.type==='move')updatePos(d.lat,d.lng);}catch(ex){}});
+L.circle([${lat},${lng}],{radius:36,color:'rgba(37,99,235,0.45)',fillColor:'rgba(37,99,235,0.14)',fillOpacity:0.5,weight:2}).addTo(map);
+L.marker([${lat},${lng}],{icon:icon}).addTo(map);
 <\/script>
 </body></html>`;
 }
@@ -48,35 +39,18 @@ export function LiveMap({
   isTracking = false,
   isLocating = false,
 }: MapViewProps & { isTracking?: boolean }) {
-  const webViewRef = useRef<WebView>(null);
   const activeCenter = center ?? FALLBACK_CENTER;
-  const [lat, lng] = activeCenter;
-  const htmlRef = useRef(buildMapHtml(lat, lng, zoom));
-  const hasSentInitial = useRef(false);
-
-  useEffect(() => {
-    if (!center || !hasSentInitial.current) {
-      return;
-    }
-    webViewRef.current?.postMessage(
-      JSON.stringify({ type: "move", lat: center[0], lng: center[1] }),
-    );
-  }, [center]);
+  const html = useMemo(
+    () => buildMapHtml(activeCenter[0], activeCenter[1], zoom),
+    [activeCenter, zoom],
+  );
 
   return (
     <View style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        source={{ html: htmlRef.current }}
-        style={styles.map}
-        javaScriptEnabled
-        domStorageEnabled
-        scrollEnabled={false}
-        bounces={false}
-        overScrollMode="never"
-        onLoadEnd={() => {
-          hasSentInitial.current = true;
-        }}
+      <iframe
+        srcDoc={html}
+        style={styles.frame as never}
+        title="Truck Location Map"
       />
       {!center && (
         <View style={styles.loadingOverlay}>
@@ -84,13 +58,13 @@ export function LiveMap({
           <Text style={styles.loadingText}>
             {isLocating
               ? "Байршил олж байна..."
-              : "Байршлын мэдээлэл хүлээж байна..."}
+              : "Web preview дээр газрын зураг бэлэн байна..."}
           </Text>
         </View>
       )}
       <View style={[styles.badge, isTracking && styles.badgeActive]}>
         <Text style={styles.badgeText}>
-          {isTracking ? "ОНЛАЙН" : "ОФФЛАЙН"}
+          {isTracking ? "ОНЛАЙН" : "DEV PREVIEW"}
         </Text>
       </View>
     </View>
@@ -102,10 +76,12 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     overflow: "hidden",
+    position: "relative",
   },
-  map: {
+  frame: {
     width: "100%",
     height: "100%",
+    borderWidth: 0,
     backgroundColor: "#f0f4f8",
   },
   loadingOverlay: {
@@ -113,7 +89,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.82)",
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
   },
   loadingText: {
     color: "#0f172a",

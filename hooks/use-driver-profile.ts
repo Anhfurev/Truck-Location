@@ -40,12 +40,7 @@ const storage = {
 };
 
 const defaultProfile: DriverProfile = {
-  firstName: "",
-  lastName: "",
-  phone: "",
-  carPlate: "",
-  company: "",
-  bio: "",
+  carNumber: "",
 };
 
 function sanitizeProfile(input: unknown): DriverProfile {
@@ -54,18 +49,21 @@ function sanitizeProfile(input: unknown): DriverProfile {
   ) as Partial<DriverProfile>;
 
   return {
-    firstName: typeof source.firstName === "string" ? source.firstName : "",
-    lastName: typeof source.lastName === "string" ? source.lastName : "",
-    phone: typeof source.phone === "string" ? source.phone : "",
-    carPlate: typeof source.carPlate === "string" ? source.carPlate : "",
-    company: typeof source.company === "string" ? source.company : "",
-    bio: typeof source.bio === "string" ? source.bio : "",
+    carNumber:
+      typeof source.carNumber === "string"
+        ? source.carNumber.replace(/\s+/g, "").toUpperCase()
+        : typeof (input as { carPlate?: unknown })?.carPlate === "string"
+          ? ((input as { carPlate?: string }).carPlate ?? "")
+              .replace(/\s+/g, "")
+              .toUpperCase()
+          : "",
   };
 }
 
 export function useDriverProfile() {
   const [profile, setProfile] = useState<DriverProfile>(defaultProfile);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasSavedProfile, setHasSavedProfile] = useState(false);
 
   // Load profile from AsyncStorage on mount
   useEffect(() => {
@@ -73,7 +71,9 @@ export function useDriverProfile() {
       try {
         const saved = await storage.getItem(STORAGE_KEY);
         if (saved) {
-          setProfile(sanitizeProfile(JSON.parse(saved)));
+          const nextProfile = sanitizeProfile(JSON.parse(saved));
+          setProfile(nextProfile);
+          setHasSavedProfile(isDriverProfileValid(nextProfile));
         }
       } catch (error) {
         console.error("Error loading profile:", error);
@@ -104,6 +104,7 @@ export function useDriverProfile() {
 
   const resetProfile = async () => {
     setProfile(defaultProfile);
+    setHasSavedProfile(false);
     try {
       await storage.removeItem(STORAGE_KEY);
     } catch (error) {
@@ -113,5 +114,12 @@ export function useDriverProfile() {
 
   const isProfileComplete = isDriverProfileValid(profile);
 
-  return { profile, updateProfile, resetProfile, isProfileComplete, isLoading };
+  return {
+    profile,
+    updateProfile,
+    resetProfile,
+    isProfileComplete,
+    isLoading,
+    hasSavedProfile,
+  };
 }

@@ -1,16 +1,21 @@
-import { buildDriverLocationPayload } from "@/lib/driver-location-payload";
+import {
+  BACKGROUND_LOCATION_TASK_NAME,
+  flushPendingPayloads,
+  getLastKnownLocation,
+  getTrackingDebugStatus,
+  getTrackingEnabled,
+  processTrackedLocation,
+  setTrackingEnabled,
+  TrackedLocationPoint,
+  TrackingDebugStatus,
+} from "@/lib/location-tracking-service";
 import { DriverLocationPayload } from "@/types/DriverLocationPayload";
 import { DriverProfile } from "@/types/DriverProfile";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 
-interface LocationData {
-  latitude: number;
-  longitude: number;
-  accuracy: number | null;
-  timestamp: number;
-}
+type LocationData = TrackedLocationPoint;
 
 const INITIAL_LOCATION_MAX_AGE_MS = 10_000;
 const INITIAL_LOCATION_REQUIRED_ACCURACY_METERS = 50;
@@ -33,9 +38,79 @@ export function useLocationTracking(
   );
   const [lastSentPayload, setLastSentPayload] =
     useState<DriverLocationPayload | null>(null);
+  const [trackingDebugStatus, setTrackingDebugStatus] =
+    useState<TrackingDebugStatus | null>(null);
+  const [shouldRestoreTracking, setShouldRestoreTracking] = useState<
+    boolean | null
+  >(null);
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(
     null,
   );
+  const hasTriedAutoRestoreRef = useRef(false);
+
+  const updateCurrentLocation = useCallback((location: LocationData) => {
+    setCurrentLocation(location);
+  }, []);
+
+  const refreshTrackingDebugStatus = useCallback(() => {
+    getTrackingDebugStatus()
+      .then((status) => {
+        setTrackingDebugStatus(status);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const notificationTitle = profile.carNumber
+    ? `${profile.carNumber} байршил хуваалцаж байна`
+    : "Байршил хуваалцаж байна";
+
+  const notificationBody = profile.carNumber
+    ? "Truck Location идэвхтэй байна. Дарж апп руу орж байршил хуваалцахыг унтраах эсвэл асаана уу."
+    : "Truck Location идэвхтэй байна. Дарж апп руу орж байршил хуваалцахыг удирдана уу.";
+
+  const ensureBackgroundTrackingActive = useCallback(async () => {
+    if (Platform.OS === "web") {
+      return true;
+    }
+
+    const [foregroundPermission, backgroundPermission, servicesEnabled] =
+      await Promise.all([
+        Location.getForegroundPermissionsAsync(),
+        Location.getBackgroundPermissionsAsync(),
+        Location.hasServicesEnabledAsync().catch(() => false),
+      ]);
+
+    if (
+      foregroundPermission.status !== "granted" ||
+      backgroundPermission.status !== "granted" ||
+      !servicesEnabled
+    ) {
+      return false;
+    }
+
+    const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(
+      BACKGROUND_LOCATION_TASK_NAME,
+    );
+    if (alreadyStarted) {
+      return true;
+    }
+
+    await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
+      accuracy: Location.Accuracy.BestForNavigation,
+      distanceInterval: 5,
+      timeInterval: 5000,
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle,
+        notificationBody,
+        notificationColor: "#2563eb",
+        killServiceOnDestroy: false,
+      },
+    });
+
+    return true;
+  }, [notificationBody, notificationTitle]);
 
   const getCurrentPositionWithTimeout = async (
     timeoutMs = 8000,
@@ -61,16 +136,55 @@ export function useLocationTracking(
     }
   };
 
-  const applyLocation = (position: Location.LocationObject) => {
-    const nextLocation: LocationData = {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      accuracy: position.coords.accuracy ?? null,
-      timestamp: position.timestamp ?? Date.now(),
-    };
-    setCurrentLocation(nextLocation);
-    sendUpdate(nextLocation);
-  };
+  const applyLocation = useCallback(
+    (position: Location.LocationObject) => {
+      const nextLocation: LocationData = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy ?? null,
+        timestamp: position.timestamp ?? Date.now(),
+        speed: position.coords.speed ?? null,
+        headingDegree: position.coords.heading ?? null,
+      };
+      updateCurrentLocation(nextLocation);
+      processTrackedLocation(nextLocation)
+        .then((payload) => {
+          if (payload) {
+            setLastSentPayload(payload);
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to process location update:", error);
+        })
+        .finally(() => {
+          refreshTrackingDebugStatus();
+        });
+    },
+    [refreshTrackingDebugStatus, updateCurrentLocation],
+  );
+
+  const startForegroundWatcher = useCallback(async () => {
+    if (locationSubscriptionRef.current) {
+      locationSubscriptionRef.current.remove();
+      locationSubscriptionRef.current = null;
+    }
+
+    locationSubscriptionRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        mayShowUserSettingsDialog: true,
+        distanceInterval: 5,
+        timeInterval: 2000,
+      },
+      (position) => {
+        if (
+          isAccurateEnough(position, LIVE_LOCATION_REQUIRED_ACCURACY_METERS)
+        ) {
+          applyLocation(position);
+        }
+      },
+    );
+  }, [applyLocation]);
 
   const isAccurateEnough = (
     position: Location.LocationObject | null,
@@ -133,26 +247,23 @@ export function useLocationTracking(
         locationSubscriptionRef.current = null;
       }
 
+      const backgroundStarted = await ensureBackgroundTrackingActive();
+      if (!backgroundStarted) {
+        toast.error("Background location зөвшөөрөл хэрэгтэй байна");
+        return false;
+      }
+
+      await setTrackingEnabled(true);
+      setShouldRestoreTracking(true);
+
       // Permissions and GPS already validated by the caller — start immediately.
       setIsTracking(true);
       setIsLocating(true);
       toast.success("Байршил хяналт идэвхжлээ");
 
-      locationSubscriptionRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          mayShowUserSettingsDialog: true,
-          distanceInterval: 5,
-          timeInterval: 2000,
-        },
-        (position) => {
-          if (
-            isAccurateEnough(position, LIVE_LOCATION_REQUIRED_ACCURACY_METERS)
-          ) {
-            applyLocation(position);
-          }
-        },
-      );
+      await startForegroundWatcher();
+      flushPendingPayloads().catch(() => undefined);
+      refreshTrackingDebugStatus();
 
       // Acquire a fresh fix in background (do not block toggle responsiveness).
       getFreshInitialPosition()
@@ -175,6 +286,7 @@ export function useLocationTracking(
       toast.error("Байршил авах боломжгүй байна");
       setIsTracking(false);
       setIsLocating(false);
+      setTrackingEnabled(false).catch(() => undefined);
       return false;
     }
   };
@@ -183,48 +295,99 @@ export function useLocationTracking(
     setIsTracking(false);
     setIsLocating(false);
     clearLocation();
+    setTrackingEnabled(false).catch(() => undefined);
+    setShouldRestoreTracking(false);
     if (locationSubscriptionRef.current) {
       locationSubscriptionRef.current.remove();
       locationSubscriptionRef.current = null;
     }
+    if (Platform.OS !== "web") {
+      Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)
+        .then((started) => {
+          if (started) {
+            return Location.stopLocationUpdatesAsync(
+              BACKGROUND_LOCATION_TASK_NAME,
+            );
+          }
+
+          return undefined;
+        })
+        .catch(() => undefined);
+    }
     toast.info("Байршил хяналт идэвхгүй болсон");
   };
 
-  const sendUpdate = async (location: LocationData) => {
-    try {
-      if (!profile.firstName || !profile.lastName) return;
+  useEffect(() => {
+    getLastKnownLocation()
+      .then((location) => {
+        if (location) {
+          setCurrentLocation(location);
+        }
+      })
+      .catch(() => undefined);
 
-      const payload = buildDriverLocationPayload({
-        profile,
-        location,
-        status: "online",
+    getTrackingEnabled()
+      .then((enabled) => {
+        setShouldRestoreTracking(enabled);
+      })
+      .catch(() => {
+        setShouldRestoreTracking(false);
       });
 
-      setLastSentPayload(payload);
+    flushPendingPayloads().catch(() => undefined);
+    refreshTrackingDebugStatus();
 
-      // Store update in AsyncStorage (in real app, send to server)
-      await AsyncStorage.setItem(
-        `location_${Date.now()}`,
-        JSON.stringify(payload),
-      );
-    } catch (error) {
-      console.error("Failed to send location update:", error);
-    }
-  };
-
-  useEffect(() => {
     return () => {
       if (locationSubscriptionRef.current) {
         locationSubscriptionRef.current.remove();
       }
     };
-  }, []);
+  }, [refreshTrackingDebugStatus]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      refreshTrackingDebugStatus();
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [refreshTrackingDebugStatus]);
+
+  useEffect(() => {
+    if (!isProfileComplete) {
+      return;
+    }
+
+    if (!shouldRestoreTracking || hasTriedAutoRestoreRef.current) {
+      return;
+    }
+
+    hasTriedAutoRestoreRef.current = true;
+
+    ensureBackgroundTrackingActive()
+      .then((canRestore) => {
+        if (!canRestore) {
+          return;
+        }
+
+        setIsTracking(true);
+        return startForegroundWatcher();
+      })
+      .catch((error) => {
+        console.error("Failed to restore tracking state:", error);
+      });
+  }, [
+    ensureBackgroundTrackingActive,
+    isProfileComplete,
+    shouldRestoreTracking,
+    startForegroundWatcher,
+  ]);
 
   return {
     isTracking,
     isLocating,
     currentLocation,
     lastSentPayload,
+    trackingDebugStatus,
     startTracking,
     stopTracking,
   };

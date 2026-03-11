@@ -92,26 +92,34 @@ const styles = StyleSheet.create({
 type OnboardingStep = "location" | "profile" | "map";
 
 export default function Index() {
-  const { profile, updateProfile, resetProfile, isProfileComplete, isLoading } =
-    useDriverProfile();
+  const {
+    profile,
+    updateProfile,
+    resetProfile,
+    isProfileComplete,
+    isLoading,
+    hasSavedProfile,
+  } = useDriverProfile();
   const {
     isTracking,
     isLocating,
     currentLocation,
+    trackingDebugStatus,
     startTracking,
     stopTracking,
   } = useLocationTracking(profile, isProfileComplete);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isToggleBusy, setIsToggleBusy] = useState(false);
-  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  const [hasLocationPermission, setHasLocationPermission] = useState(
+    Platform.OS === "web",
+  );
   const [hasStartedOnboarding, setHasStartedOnboarding] = useState(false);
   const [locationPopoverMessage, setLocationPopoverMessage] = useState<
     string | null
   >(null);
   const appStateRef = useRef(AppState.currentState);
   const waitingForSettingsReturn = useRef(false);
-  const hasCheckedSavedProfileRef = useRef(false);
 
   const openDeviceLocationSettings = useCallback(async () => {
     waitingForSettingsReturn.current = true;
@@ -159,7 +167,12 @@ export default function Index() {
   }, [locationPopoverMessage]);
 
   const checkLocationPermission = useCallback(
-    async (requestPermission: boolean) => {
+    async (requestPermission: boolean, requireBackground = false) => {
+      if (Platform.OS === "web") {
+        setHasLocationPermission(true);
+        return true;
+      }
+
       const permission = requestPermission
         ? await Location.requestForegroundPermissionsAsync()
         : await Location.getForegroundPermissionsAsync();
@@ -192,6 +205,24 @@ export default function Index() {
         }
 
         return false;
+      }
+
+      if (requireBackground) {
+        const backgroundPermission = requestPermission
+          ? await Location.requestBackgroundPermissionsAsync()
+          : await Location.getBackgroundPermissionsAsync();
+
+        if (backgroundPermission.status !== "granted") {
+          if (requestPermission) {
+            Alert.alert(
+              "Background location зөвшөөрөл хэрэгтэй",
+              "App хаалттай байсан ч GPS цэг хадгалахын тулд Always allow сонгоно уу.",
+              [{ text: "Ойлголоо" }],
+            );
+          }
+
+          return false;
+        }
       }
 
       let servicesEnabled = false;
@@ -258,22 +289,20 @@ export default function Index() {
   }, [checkLocationPermission]);
 
   useEffect(() => {
-    if (isLoading || hasCheckedSavedProfileRef.current) {
+    if (isLoading) {
       return;
     }
 
-    hasCheckedSavedProfileRef.current = true;
-    if (isProfileComplete) {
-      setHasStartedOnboarding(true);
-    }
-  }, [isLoading, isProfileComplete]);
+    setHasStartedOnboarding(hasSavedProfile);
+  }, [hasSavedProfile, isLoading]);
 
   const currentStep: OnboardingStep = useMemo(() => {
+    if (isProfileComplete && hasStartedOnboarding) return "map";
     if (!hasLocationPermission) return "location";
     if (!isProfileComplete) return "profile";
     if (!hasStartedOnboarding) return "profile";
     return "map";
-  }, [hasLocationPermission, isProfileComplete, hasStartedOnboarding]);
+  }, [hasLocationPermission, hasStartedOnboarding, isProfileComplete]);
 
   const toggleTracking = async (enabled: boolean) => {
     if (isToggleBusy) {
@@ -283,10 +312,10 @@ export default function Index() {
     setIsToggleBusy(true);
     try {
       if (enabled) {
-        const canUseLocation = await checkLocationPermission(true);
+        const canUseLocation = await checkLocationPermission(true, true);
         if (!canUseLocation) {
           setLocationPopoverMessage(
-            "Location permission болон GPS-ээ асаана уу",
+            "Always location permission болон GPS-ээ асаана уу",
           );
           return;
         }
@@ -316,6 +345,13 @@ export default function Index() {
       setHasLocationPermission(true);
       setHasStartedOnboarding(true);
     }
+  };
+
+  const handleDeleteAccount = async () => {
+    stopTracking();
+    await resetProfile();
+    setHasStartedOnboarding(false);
+    setShowProfileSettings(false);
   };
 
   const mapCenter = useMemo((): [number, number] | null => {
@@ -398,6 +434,7 @@ export default function Index() {
             onToggleTracking={toggleTracking}
             onOpenDrawer={() => setIsDrawerOpen(true)}
             locationPopoverMessage={locationPopoverMessage}
+            trackingDebugStatus={trackingDebugStatus}
           />
         )}
       </View>
@@ -410,6 +447,7 @@ export default function Index() {
         isBusy={isToggleBusy}
         onToggleTracking={toggleTracking}
         locationPopoverMessage={locationPopoverMessage}
+        trackingDebugStatus={trackingDebugStatus}
       />
 
       {/* Profile Settings Modal */}
@@ -418,7 +456,7 @@ export default function Index() {
         onClose={() => setShowProfileSettings(false)}
         profile={profile}
         onUpdate={updateProfile}
-        onResetProfile={resetProfile}
+        onDeleteAccount={handleDeleteAccount}
       />
     </SafeAreaView>
   );

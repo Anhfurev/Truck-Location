@@ -7,56 +7,66 @@ interface BuildDriverLocationPayloadInput {
     longitude: number;
     accuracy: number | null;
     timestamp: number;
+    speed: number | null;
+    headingDegree: number | null;
   };
   profile: DriverProfile;
-  status: DriverLocationPayload["status"];
 }
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
-export function buildDriverTrackingId(profile: DriverProfile): string {
-  const carPlate = normalizeWhitespace(profile.carPlate).replace(/\s+/g, "-");
-  const phone = normalizeWhitespace(profile.phone).replace(/[^\d+]/g, "");
-  const fullName = normalizeWhitespace(
-    `${profile.firstName} ${profile.lastName}`,
-  )
-    .toLowerCase()
-    .replace(/\s+/g, "-");
+function formatPayloadTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
 
-  return carPlate || phone || fullName || "unknown-driver";
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+}
+
+function normalizeHeading(value: number | null): number | null {
+  if (value == null || Number.isNaN(value) || value < 0) {
+    return null;
+  }
+
+  return Math.round(value * 10) / 10;
+}
+
+function normalizeSpeed(value: number | null): number | null {
+  if (value == null || Number.isNaN(value) || value < 0) {
+    return null;
+  }
+
+  return Math.round(value * 3.6 * 10) / 10;
 }
 
 export function buildDriverLocationPayload({
   location,
   profile,
-  status,
 }: BuildDriverLocationPayloadInput): DriverLocationPayload {
-  const fullName = normalizeWhitespace(
-    `${profile.firstName} ${profile.lastName}`,
-  );
+  const normalizedCarNumber = normalizeWhitespace(profile.carNumber)
+    .replace(/\s+/g, "")
+    .toUpperCase();
 
   return {
-    schemaVersion: 1,
-    source: "expo-location",
-    status,
-    recordedAt: new Date(location.timestamp).toISOString(),
-    recordedAtUnixMs: location.timestamp,
-    driver: {
-      id: buildDriverTrackingId(profile),
-      fullName,
-      firstName: normalizeWhitespace(profile.firstName),
-      lastName: normalizeWhitespace(profile.lastName),
-      phone: normalizeWhitespace(profile.phone),
-      carPlate: normalizeWhitespace(profile.carPlate).toUpperCase(),
-      company: normalizeWhitespace(profile.company),
-      bio: profile.bio.trim(),
-    },
-    location: {
-      latitude: location.latitude,
-      longitude: location.longitude,
-      accuracyMeters: location.accuracy,
+    carNumber: normalizedCarNumber,
+    deviceId: normalizedCarNumber,
+    timestamp: formatPayloadTimestamp(location.timestamp),
+    latitude: location.latitude,
+    longitude: location.longitude,
+    speed: normalizeSpeed(location.speed),
+    headingDegree: normalizeHeading(location.headingDegree),
+    other: {
+      ignitionStatus: true,
+      batteryVoltage: null,
+      gpsAccuracyHdop: null,
+      satellitesInView: null,
+      gsmSignalStrengthDbm: null,
+      eventCode: 102,
     },
   };
 }
