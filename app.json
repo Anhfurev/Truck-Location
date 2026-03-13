@@ -67,7 +67,8 @@
             "backgroundColor": "#0f172a"
           }
         }
-      ]
+      ],
+      "./plugins/withBootReceiver"
     ],
     "experiments": {
       "typedRoutes": true

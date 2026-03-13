@@ -1,5 +1,6 @@
 import { buildDriverLocationPayload } from "@/lib/driver-location-payload";
 import { isDriverProfileValid } from "@/lib/driver-profile-validation";
+import { setNativeTrackingEnabled } from "@/modules/tracking-native/src";
 import { DriverLocationPayload } from "@/types/DriverLocationPayload";
 import { DriverProfile } from "@/types/DriverProfile";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -293,6 +294,9 @@ export async function setTrackingEnabled(enabled: boolean): Promise<void> {
     TRACKING_ENABLED_STORAGE_KEY,
     enabled ? "true" : "false",
   );
+  // Mirror to Android SharedPreferences so BootReceiver can read the state
+  // after a reboot without requiring the JS runtime to be running first.
+  setNativeTrackingEnabled(enabled).catch(() => undefined);
 }
 
 export async function getTrackingEnabled(): Promise<boolean> {

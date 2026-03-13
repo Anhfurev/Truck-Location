@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml:2:13-83
+INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml:2:13-83
+	package
+		INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml
+	xmlns:android
+		ADDED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml:2:23-81
+uses-sdk
+INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml reason: use-sdk injection requested
+INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml
+INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml
+	android:targetSdkVersion
+		INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml
+	android:minSdkVersion
+		INJECTED from /Users/macbook/Documents/GitHub/trucklocation/modules/tracking-native/android/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest13057059736902019893.xml

@@ -1,0 +1,7 @@
+{
+  "name": "tracking-native",
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.trackingnative.TrackingNativeModule"]
+  }
+}

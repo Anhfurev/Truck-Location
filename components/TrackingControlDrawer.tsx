@@ -122,18 +122,20 @@ export function TrackingControlDrawer({
                   <Text style={styles.drawerCardText}>Байршил илгээх</Text>
                   <Text style={styles.drawerCardSubtext}>
                     {isTracking
-                      ? "Хуваалцаж байна. Notification дээр дарж энд орж унтрааж болно."
-                      : "Унтраалттай байна. Эндээс асаавал notification үргэлж харагдана."}
+                      ? "Идэвхтэй. Хүсвэл notification-оос унтраана."
+                      : "Унтраалттай. Эндээс асааж болно."}
                   </Text>
                 </View>
               </View>
-              <RNSwitch
-                value={isTracking}
-                onValueChange={onToggleTracking}
-                disabled={isBusy}
-                trackColor={{ false: "#e5e7eb", true: "#22c55e" }}
-                thumbColor={isTracking ? "#22c55e" : "#999"}
-              />
+              <View style={styles.drawerCardSwitchWrap}>
+                <RNSwitch
+                  value={isTracking}
+                  onValueChange={onToggleTracking}
+                  disabled={isBusy}
+                  trackColor={{ false: "#e5e7eb", true: "#22c55e" }}
+                  thumbColor={isTracking ? "#22c55e" : "#999"}
+                />
+              </View>
             </View>
           </View>
 
@@ -267,6 +269,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     flex: 1,
+    marginRight: 12,
+    minWidth: 0,
+  },
+  drawerCardSwitchWrap: {
+    alignSelf: "center",
+    marginTop: 0,
   },
   drawerCardIconBox: {
     width: 40,

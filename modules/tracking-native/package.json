@@ -1,0 +1,7 @@
+{
+  "name": "tracking-native",
+  "version": "1.0.0",
+  "description": "Local Expo native module: mirrors tracking state to SharedPreferences so the BootReceiver can restart location tracking after a device reboot without needing the JS runtime.",
+  "main": "src/index.ts",
+  "typings": "src/index.ts"
+}

@@ -6,8 +6,8 @@
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "postinstall": "node ./scripts/fix-expo-module-scripts-tsconfig.cjs",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "build:apk": "eas build -p android --profile preview",
@@ -48,7 +48,8 @@
     "react-native-web": "~0.21.0",
     "react-native-webview": "13.15.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "tracking-native": "file:./modules/tracking-native"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
