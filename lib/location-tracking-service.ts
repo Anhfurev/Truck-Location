@@ -26,6 +26,7 @@ const TRACKING_DEBUG_STATUS_KEY = "tracking_debug_status";
 const GPS_ENDPOINT = "https://ai-tos.mn/api/gps/data";
 const MAX_QUEUE_SIZE = 500;
 const BACKGROUND_ACCEPTABLE_ACCURACY_METERS = 150;
+const GPS_REQUEST_TIMEOUT_MS = 15000;
 
 export const BACKGROUND_LOCATION_TASK_NAME =
   "trucklocation-background-location";
@@ -141,18 +142,16 @@ function sanitizeProfile(input: unknown): DriverProfile {
   const source =
     input && typeof input === "object"
       ? (input as Partial<DriverProfile> & {
-          phone?: string;
-          carPlate?: string;
+          carNumber?: string;
           deviceId?: string;
         })
       : {};
 
   return {
-    carNumber: sanitizeText(
-      source.carNumber ?? source.carPlate ?? source.deviceId,
-    )
+    carNumber: sanitizeText(source.carNumber ?? source.carNumber)
       .replace(/\s+/g, "")
       .toUpperCase(),
+    deviceId: sanitizeText(source.deviceId),
   };
 }
 
@@ -178,6 +177,54 @@ function sanitizeTrackedLocation(input: unknown): TrackedLocationPoint | null {
     speed: typeof source.speed === "number" ? source.speed : null,
     headingDegree:
       typeof source.headingDegree === "number" ? source.headingDegree : null,
+  };
+}
+
+function asFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeDriverLocationPayload(
+  input: unknown,
+): DriverLocationPayload | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const source = input as Partial<DriverLocationPayload> & {
+    other?: Partial<DriverLocationPayload["other"]> | null;
+  };
+
+  if (
+    typeof source.carNumber !== "string" ||
+    typeof source.deviceId !== "string" ||
+    typeof source.timestamp !== "string" ||
+    typeof source.latitude !== "number" ||
+    typeof source.longitude !== "number"
+  ) {
+    return null;
+  }
+
+  const other: Partial<DriverLocationPayload["other"]> = source.other ?? {};
+
+  return {
+    carNumber: source.carNumber,
+    deviceId: source.deviceId,
+    timestamp: source.timestamp,
+    latitude: source.latitude,
+    longitude: source.longitude,
+    speed: typeof source.speed === "number" ? source.speed : null,
+    headingDegree:
+      typeof source.headingDegree === "number" ? source.headingDegree : null,
+    other: {
+      ignitionStatus:
+        typeof other.ignitionStatus === "boolean" ? other.ignitionStatus : true,
+      batteryVoltage: asFiniteNumber(other.batteryVoltage, 12.6),
+      gpsAccuracyHdop: asFiniteNumber(other.gpsAccuracyHdop, 0.8),
+      satellitesInView: asFiniteNumber(other.satellitesInView, 12),
+      gsmSignalStrengthDbm: asFiniteNumber(other.gsmSignalStrengthDbm, -92),
+      eventCode: asFiniteNumber(other.eventCode, 102),
+    },
   };
 }
 
@@ -208,8 +255,15 @@ async function getStoredProfile(): Promise<DriverProfile | null> {
 
 async function getPendingPayloads(): Promise<DriverLocationPayload[]> {
   const rawQueue = await AsyncStorage.getItem(PENDING_PAYLOADS_STORAGE_KEY);
-  const queue = parseJson<DriverLocationPayload[]>(rawQueue, []);
-  return Array.isArray(queue) ? queue : [];
+  const queue = parseJson<unknown[]>(rawQueue, []);
+
+  if (!Array.isArray(queue)) {
+    return [];
+  }
+
+  return queue
+    .map((payload) => sanitizeDriverLocationPayload(payload))
+    .filter((payload): payload is DriverLocationPayload => payload !== null);
 }
 
 async function setPendingPayloads(
@@ -231,42 +285,105 @@ async function setPendingPayloads(
 }
 
 async function postPayload(payload: DriverLocationPayload): Promise<void> {
+  const normalizedPayload = sanitizeDriverLocationPayload(payload);
+
+  if (!normalizedPayload) {
+    throw new Error("GPS payload is invalid");
+  }
+
   await updateTrackingDebugStatus({
     lastAttemptAt: new Date().toISOString(),
-    lastPayload: payload,
+    lastPayload: normalizedPayload,
+    lastResponseStatus: null,
+    lastResponseText: null,
     lastError: null,
   });
 
   debugTrackingLog("POST gps payload", {
     endpoint: GPS_ENDPOINT,
-    carNumber: payload.carNumber,
-    timestamp: payload.timestamp,
-    latitude: payload.latitude,
-    longitude: payload.longitude,
-    speed: payload.speed,
-    headingDegree: payload.headingDegree,
+    carNumber: normalizedPayload.carNumber,
+    timestamp: normalizedPayload.timestamp,
+    latitude: normalizedPayload.latitude,
+    longitude: normalizedPayload.longitude,
+    other: normalizedPayload.other,
   });
-  debugTrackingLog("POST gps payload body", formatPayloadForDebug(payload));
+  debugTrackingLog(
+    "POST gps payload body",
+    formatPayloadForDebug(normalizedPayload),
+  );
 
-  const response = await fetch(GPS_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    abortController.abort();
+  }, GPS_REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+
+  try {
+    response = await fetch(GPS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        carNumber: normalizedPayload.carNumber,
+        deviceId: "",
+        timestamp: normalizedPayload.timestamp,
+        latitude: normalizedPayload.latitude,
+        longitude: normalizedPayload.longitude,
+        speed: normalizedPayload.speed,
+        headingDegree: normalizedPayload.headingDegree,
+        other: {
+          ignitionStatus: true,
+          batteryVoltage: 12.6,
+          gpsAccuracyHdop: 0.8,
+          satellitesInView: 12,
+          gsmSignalStrengthDbm: -92,
+          eventCode: 102,
+        },
+      }),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? `GPS API request timed out after ${GPS_REQUEST_TIMEOUT_MS}ms`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
+    await updateTrackingDebugStatus({
+      lastFailureAt: new Date().toISOString(),
+      lastResponseStatus: null,
+      lastResponseText: null,
+      lastError: message,
+    });
+
+    throw new Error(message);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `GPS API request failed (${response.status}): ${errorText || "unknown"}`,
-    );
+    const message = `GPS API request failed (${response.status}): ${errorText || "unknown"}`;
+
+    await updateTrackingDebugStatus({
+      lastFailureAt: new Date().toISOString(),
+      lastResponseStatus: response.status,
+      lastResponseText: errorText || null,
+      lastError: message,
+    });
+
+    throw new Error(message);
   }
 
   const responseText = await response.text().catch(() => "");
 
-  await AsyncStorage.setItem(LAST_PAYLOAD_STORAGE_KEY, JSON.stringify(payload));
+  await AsyncStorage.setItem(
+    LAST_PAYLOAD_STORAGE_KEY,
+    JSON.stringify(normalizedPayload),
+  );
   await updateTrackingDebugStatus({
     lastSuccessAt: new Date().toISOString(),
     lastResponseStatus: response.status,
@@ -275,8 +392,8 @@ async function postPayload(payload: DriverLocationPayload): Promise<void> {
   });
   debugTrackingLog("POST gps payload success", {
     status: response.status,
-    carNumber: payload.carNumber,
-    timestamp: payload.timestamp,
+    carNumber: normalizedPayload.carNumber,
+    timestamp: normalizedPayload.timestamp,
     responseText,
   });
 }

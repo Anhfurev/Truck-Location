@@ -1,10 +1,10 @@
 export interface DriverLocationOther {
-  ignitionStatus: boolean | null;
-  batteryVoltage: number | null;
-  gpsAccuracyHdop: number | null;
-  satellitesInView: number | null;
-  gsmSignalStrengthDbm: number | null;
-  eventCode: number | null;
+  ignitionStatus: boolean;
+  batteryVoltage: number;
+  gpsAccuracyHdop: number;
+  satellitesInView: number;
+  gsmSignalStrengthDbm: number;
+  eventCode: number;
 }
 
 export interface DriverLocationPayload {
@@ -15,5 +15,5 @@ export interface DriverLocationPayload {
   longitude: number;
   speed: number | null;
   headingDegree: number | null;
-  other: DriverLocationOther | null;
+  other: DriverLocationOther;
 }

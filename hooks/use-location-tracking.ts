@@ -97,7 +97,7 @@ export function useLocationTracking(
 
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
       accuracy: Location.Accuracy.BestForNavigation,
-      distanceInterval: 5,
+      distanceInterval: 0,
       timeInterval: 5000,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
@@ -173,8 +173,8 @@ export function useLocationTracking(
       {
         accuracy: Location.Accuracy.BestForNavigation,
         mayShowUserSettingsDialog: true,
-        distanceInterval: 5,
-        timeInterval: 2000,
+        distanceInterval: 0,
+        timeInterval: 5000,
       },
       (position) => {
         if (

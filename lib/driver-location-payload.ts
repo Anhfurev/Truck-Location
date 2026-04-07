@@ -44,6 +44,14 @@ function normalizeSpeed(value: number | null): number | null {
   return Math.round(value * 3.6 * 10) / 10;
 }
 
+function normalizeGpsAccuracyHdop(value: number | null): number {
+  if (value == null || Number.isNaN(value) || value <= 0) {
+    return 0.8;
+  }
+
+  return Math.max(0.8, Math.round((value / 5) * 10) / 10);
+}
+
 export function buildDriverLocationPayload({
   location,
   profile,
@@ -51,10 +59,11 @@ export function buildDriverLocationPayload({
   const normalizedCarNumber = normalizeWhitespace(profile.carNumber)
     .replace(/\s+/g, "")
     .toUpperCase();
+  const normalizedDeviceId = normalizeWhitespace(profile.deviceId);
 
   return {
     carNumber: normalizedCarNumber,
-    deviceId: normalizedCarNumber,
+    deviceId: normalizedDeviceId,
     timestamp: formatPayloadTimestamp(location.timestamp),
     latitude: location.latitude,
     longitude: location.longitude,
@@ -62,10 +71,10 @@ export function buildDriverLocationPayload({
     headingDegree: normalizeHeading(location.headingDegree),
     other: {
       ignitionStatus: true,
-      batteryVoltage: null,
-      gpsAccuracyHdop: null,
-      satellitesInView: null,
-      gsmSignalStrengthDbm: null,
+      batteryVoltage: 12.6,
+      gpsAccuracyHdop: normalizeGpsAccuracyHdop(location.accuracy),
+      satellitesInView: 12,
+      gsmSignalStrengthDbm: -92,
       eventCode: 102,
     },
   };

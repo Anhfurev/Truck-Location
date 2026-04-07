@@ -41,6 +41,7 @@ const storage = {
 
 const defaultProfile: DriverProfile = {
   carNumber: "",
+  deviceId: "",
 };
 
 function sanitizeProfile(input: unknown): DriverProfile {
@@ -57,6 +58,7 @@ function sanitizeProfile(input: unknown): DriverProfile {
               .replace(/\s+/g, "")
               .toUpperCase()
           : "",
+    deviceId: typeof source.deviceId === "string" ? source.deviceId.trim() : "",
   };
 }
 
