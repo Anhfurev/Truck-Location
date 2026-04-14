@@ -1,6 +1,6 @@
 // /Users/macbook/Documents/GitHub/trucklocation/components/LocationPermissionStep.tsx
 
-import { LocateFixed, MapPin } from "lucide-react-native";
+import { BatteryCharging, LocateFixed, MapPin } from "lucide-react-native";
 import React from "react";
 import {
   Platform,
@@ -12,10 +12,12 @@ import {
 
 interface LocationPermissionStepProps {
   onRequestLocation: () => void;
+  onOpenBatterySettings?: () => void;
 }
 
 export function LocationPermissionStep({
   onRequestLocation,
+  onOpenBatterySettings,
 }: LocationPermissionStepProps) {
   return (
     <View style={[styles.stepContainer, styles.stepContainerCentered]}>
@@ -31,6 +33,24 @@ export function LocationPermissionStep({
         <MapPin size={20} color="white" />
         <Text style={styles.buttonText}>Байршил зөвшөөрөх</Text>
       </TouchableOpacity>
+      {Platform.OS === "android" && onOpenBatterySettings && (
+        <>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={onOpenBatterySettings}
+          >
+            <BatteryCharging size={18} color="#1d4ed8" />
+            <Text style={styles.secondaryButtonText}>
+              Battery тохиргоо нээх
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.tipText}>
+            Samsung/Xiaomi/Vivo утсан дээр App Info -{">"} Battery -{">"}{" "}
+            Unrestricted болгож тохируулна уу. &quot;Optimized&quot; хэвээр байвал GPS
+            tracking 10-20 минутын дараа зогсож болзошгүй.
+          </Text>
+        </>
+      )}
     </View>
   );
 }
@@ -83,5 +103,30 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  secondaryButton: {
+    width: "100%",
+    marginTop: 12,
+    backgroundColor: "#dbeafe",
+    borderWidth: 1,
+    borderColor: "#93c5fd",
+    paddingVertical: 14,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  secondaryButtonText: {
+    color: "#1d4ed8",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  tipText: {
+    marginTop: 10,
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
   },
 });

@@ -41,7 +41,8 @@ app-example
 # generated native folders
 /ios
 /android
+modules/**/android/build/
 
 # local build artifacts
-build-*.apk
-truck location.apk
+*.apk
+*.aab

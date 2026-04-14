@@ -1,5 +1,11 @@
-import React, { useEffect, useRef } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { WebView } from "react-native-webview";
 
 interface MapViewProps {
@@ -9,6 +15,8 @@ interface MapViewProps {
 }
 
 const FALLBACK_CENTER: [number, number] = [47.9188, 106.9176];
+
+type MapLoadState = "loading" | "ready" | "error";
 
 function buildMapHtml(lat: number, lng: number, zoom: number): string {
   return `<!DOCTYPE html>
@@ -25,19 +33,71 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden}
 </head><body>
 <div id="map"></div>
 <script>
-var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${lat},${lng}],${zoom});
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-var icon=L.divIcon({className:'',html:'<div class="pulse-marker"><div class="dot"></div></div>',iconSize:[20,20],iconAnchor:[10,10]});
-var marker=null;
-var circle=null;
+function sendStatus(type, message) {
+  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, message: message }));
+  }
+}
+
+var map = null;
+var marker = null;
+var circle = null;
+var icon = null;
+
 function updatePos(lat,lng){
-  if(marker){marker.setLatLng([lat,lng]);circle.setLatLng([lat,lng]);}
-  else{circle=L.circle([lat,lng],{radius:36,color:'rgba(37,99,235,0.45)',fillColor:'rgba(37,99,235,0.14)',fillOpacity:0.5,weight:2}).addTo(map);marker=L.marker([lat,lng],{icon:icon}).addTo(map);}
+  if(!map){
+    return;
+  }
+
+  if(marker){
+    marker.setLatLng([lat,lng]);
+    if(circle){
+      circle.setLatLng([lat,lng]);
+    }
+  } else {
+    circle=L.circle([lat,lng],{radius:36,color:'rgba(37,99,235,0.45)',fillColor:'rgba(37,99,235,0.14)',fillOpacity:0.5,weight:2}).addTo(map);
+    marker=L.marker([lat,lng],{icon:icon}).addTo(map);
+  }
+
   map.panTo([lat,lng],{animate:true,duration:0.5});
 }
-updatePos(${lat},${lng});
-document.addEventListener('message',function(e){try{var d=JSON.parse(e.data);if(d.type==='move')updatePos(d.lat,d.lng);}catch(ex){}});
-window.addEventListener('message',function(e){try{var d=JSON.parse(e.data);if(d.type==='move')updatePos(d.lat,d.lng);}catch(ex){}});
+
+function handleMessage(rawData) {
+  try {
+    var data = JSON.parse(rawData);
+    if(data.type==='move') {
+      updatePos(data.lat, data.lng);
+    }
+  } catch (error) {}
+}
+
+function bootstrapMap() {
+  try {
+    if (typeof L === 'undefined') {
+      sendStatus('error', 'Leaflet failed to load');
+      return;
+    }
+
+    map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${lat},${lng}],${zoom});
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+    icon=L.divIcon({className:'',html:'<div class="pulse-marker"><div class="dot"></div></div>',iconSize:[20,20],iconAnchor:[10,10]});
+    updatePos(${lat},${lng});
+    sendStatus('ready', 'Map ready');
+  } catch (error) {
+    sendStatus('error', String(error && error.message ? error.message : error));
+  }
+}
+
+document.addEventListener('message',function(e){handleMessage(e.data);});
+window.addEventListener('message',function(e){handleMessage(e.data);});
+window.addEventListener('load', function(){
+  setTimeout(bootstrapMap, 0);
+  setTimeout(function(){
+    if(!map){
+      sendStatus('error', 'Map bootstrap timed out');
+    }
+  }, 3500);
+});
 <\/script>
 </body></html>`;
 }
@@ -49,36 +109,103 @@ export function LiveMap({
   isLocating = false,
 }: MapViewProps & { isTracking?: boolean }) {
   const webViewRef = useRef<WebView>(null);
-  const activeCenter = center ?? FALLBACK_CENTER;
+  const [lastKnownCenter, setLastKnownCenter] = useState<
+    [number, number] | null
+  >(center);
+  const [mapLoadState, setMapLoadState] = useState<MapLoadState>("loading");
+  const [webViewKey, setWebViewKey] = useState(0);
+
+  useEffect(() => {
+    if (center) {
+      setLastKnownCenter(center);
+    }
+  }, [center]);
+
+  const activeCenter = lastKnownCenter ?? center ?? FALLBACK_CENTER;
   const [lat, lng] = activeCenter;
   const htmlRef = useRef(buildMapHtml(lat, lng, zoom));
   const hasSentInitial = useRef(false);
+  const hasRealLocation = lastKnownCenter !== null || center !== null;
+
+  const sendMapMove = (nextCenter: [number, number]) => {
+    webViewRef.current?.postMessage(
+      JSON.stringify({ type: "move", lat: nextCenter[0], lng: nextCenter[1] }),
+    );
+  };
 
   useEffect(() => {
     if (!center || !hasSentInitial.current) {
       return;
     }
-    webViewRef.current?.postMessage(
-      JSON.stringify({ type: "move", lat: center[0], lng: center[1] }),
-    );
+    sendMapMove(center);
   }, [center]);
+
+  const handleReload = () => {
+    hasSentInitial.current = false;
+    setMapLoadState("loading");
+    setWebViewKey((current) => current + 1);
+  };
 
   return (
     <View style={styles.container}>
       <WebView
+        key={webViewKey}
         ref={webViewRef}
         source={{ html: htmlRef.current }}
         style={styles.map}
+        originWhitelist={["*"]}
         javaScriptEnabled
         domStorageEnabled
         scrollEnabled={false}
         bounces={false}
         overScrollMode="never"
+        onMessage={(event) => {
+          try {
+            const payload = JSON.parse(event.nativeEvent.data) as {
+              type?: string;
+            };
+
+            if (payload.type === "ready") {
+              setMapLoadState("ready");
+              return;
+            }
+
+            if (payload.type === "error") {
+              setMapLoadState("error");
+            }
+          } catch {
+            setMapLoadState("error");
+          }
+        }}
+        onError={() => setMapLoadState("error")}
         onLoadEnd={() => {
           hasSentInitial.current = true;
+          setMapLoadState((current) =>
+            current === "ready" ? current : "loading",
+          );
+
+          if (center) {
+            sendMapMove(center);
+            return;
+          }
+
+          if (lastKnownCenter) {
+            sendMapMove(lastKnownCenter);
+          }
         }}
       />
-      {!center && (
+      {mapLoadState === "error" && (
+        <View style={styles.loadingOverlay}>
+          <Text style={styles.loadingText}>Газрын зураг ачаалсангүй.</Text>
+          <Text style={styles.errorText}>
+            Интернетээ шалгаад дахин оролдоно уу.
+          </Text>
+          <Pressable onPress={handleReload} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Дахин ачаалах</Text>
+          </Pressable>
+        </View>
+      )}
+      {!hasRealLocation && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="small" color="#2563eb" />
           <Text style={styles.loadingText}>
@@ -119,6 +246,23 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 13,
     fontWeight: "700",
+  },
+  errorText: {
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  retryButton: {
+    marginTop: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#2563eb",
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
   },
   badge: {
     position: "absolute",

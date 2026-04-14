@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "trucklocation",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.ankhush.trucklocation",
       "infoPlist": {
@@ -26,11 +26,17 @@
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "WAKE_LOCK",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.WAKE_LOCK"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E3F2FD",
@@ -51,9 +57,16 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Your location is used to share your live driver position.",
-          "locationAlwaysAndWhenInUsePermission": "App хаалттай байсан ч таны GPS байршлыг хадгалж илгээнэ.",
+          "locationAlwaysAndWhenInUsePermission": "App хаалттай байсан ч таны GPS байршлыг хадгалж илгээхэд ашиглана.",
           "isAndroidBackgroundLocationEnabled": true,
-          "isIosBackgroundLocationEnabled": true
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "foregroundService": {
+            "notificationTitle": "Truck Location идэвхтэй байна",
+            "notificationBody": "Систем таны байршлыг тасралтгүй хянаж байна.",
+            "notificationColor": "#3B82F6",
+            "stopOnTerminate": false
+          }
         }
       ],
       [

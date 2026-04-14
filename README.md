@@ -1,50 +1,68 @@
-# Welcome to your Expo app 👋
+# Truck Location Android App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Truck Location is an Expo-based React Native application focused on Android driver tracking. It includes background GPS tracking, Android foreground service support, and boot restore support through the custom `tracking-native` module.
 
-## Get started
+## Requirements
 
-1. Install dependencies
+- Node.js 20+
+- Android Studio with an emulator, or a physical Android device
+- JDK 17
+- Android SDK configured in your shell environment
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Install
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Run On Android
 
-## Learn more
+Start a development build on an emulator or connected device:
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm run android
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+This uses `expo run:android` and installs the native Android app.
 
-## Join the community
+## Build A Debug APK Locally
 
-Join our community of developers creating universal apps.
+To generate a local debug APK:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+The generated APK will be available at:
+
+```bash
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Build With EAS
+
+Preview APK:
+
+```bash
+npm run build:apk
+```
+
+Production AAB:
+
+```bash
+npm run build:aab
+```
+
+## Android-Specific Behavior
+
+- Background location is enabled in Expo config.
+- Foreground service permissions are declared for Android.
+- The custom boot receiver restores app launch after device reboot when tracking was previously enabled.
+- Native boot restore requires a development build or release build, not Expo Go.
+
+## Notes
+
+- The native Android project already exists in the `android` directory.
+- A local `./gradlew assembleDebug` build completes successfully.
+- During Gradle build, Expo warns if `NODE_ENV` is unset; this does not block the Android build.

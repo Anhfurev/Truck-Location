@@ -1,11 +1,12 @@
 // /Users/macbook/Documents/GitHub/trucklocation/components/TrackingControlDrawer.tsx
 
 import { TrackingDebugStatus } from "@/lib/location-tracking-service";
-import { MapPin, ShieldCheck } from "lucide-react-native";
+import { BatteryCharging, MapPin, ShieldCheck } from "lucide-react-native";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
   Modal,
+  Platform,
   Switch as RNSwitch,
   StyleSheet,
   Text,
@@ -21,6 +22,7 @@ interface TrackingControlDrawerProps {
   onToggleTracking: (value: boolean) => void;
   locationPopoverMessage?: string | null;
   trackingDebugStatus?: TrackingDebugStatus | null;
+  onOpenBatterySettings?: () => void;
 }
 
 const PRIMARY_BLUE = "#2563eb";
@@ -33,6 +35,7 @@ export function TrackingControlDrawer({
   onToggleTracking,
   locationPopoverMessage,
   trackingDebugStatus,
+  onOpenBatterySettings,
 }: TrackingControlDrawerProps) {
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const drawerOpacity = useRef(new Animated.Value(0)).current;
@@ -151,6 +154,18 @@ export function TrackingControlDrawer({
               харах боломжтой.
             </Text>
           </View>
+
+          {Platform.OS === "android" && onOpenBatterySettings && (
+            <TouchableOpacity
+              style={styles.batteryButton}
+              onPress={onOpenBatterySettings}
+            >
+              <BatteryCharging size={18} color="#1d4ed8" />
+              <Text style={styles.batteryButtonText}>
+                Battery Optimization тохируулах
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.debugCard}>
             <Text style={styles.debugTitle}>Тестийн төлөв</Text>
@@ -328,6 +343,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginTop: 4,
+  },
+  batteryButton: {
+    width: "100%",
+    backgroundColor: "#dbeafe",
+    borderWidth: 1,
+    borderColor: "#93c5fd",
+    paddingVertical: 12,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  batteryButtonText: {
+    color: "#1d4ed8",
+    fontSize: 13,
+    fontWeight: "800",
   },
   button: {
     width: "100%",

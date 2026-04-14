@@ -3,6 +3,7 @@ package expo.modules.trackingnative
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.UserManager
 
 /**
  * Listens for device boot events and relaunches the app if the driver had
@@ -13,30 +14,35 @@ import android.content.Intent
  * the full React Native / Expo JS runtime to have started yet.
  */
 class BootReceiver : BroadcastReceiver() {
-
-    companion object {
-        private const val PREFS_NAME = "trucklocation_tracking"
-        private const val KEY_TRACKING_ENABLED = "tracking_enabled"
-    }
-
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
         // Handle standard boot + fast-boot variants used by some OEMs.
         val isBootAction = action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON"
+        val isUnlockAction = action == Intent.ACTION_USER_UNLOCKED
 
-        if (!isBootAction) return
+        if (!isBootAction && !isUnlockAction) return
 
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val trackingEnabled = prefs.getBoolean(KEY_TRACKING_ENABLED, false)
+        if (!TrackingPersistence.isTrackingEnabled(context)) return
 
-        if (!trackingEnabled) return
+        // Keep an Android foreground service alive as soon as we can.
+        PersistentTrackingService.start(
+            context,
+            TrackingPersistence.getNotificationTitle(context),
+            TrackingPersistence.getNotificationBody(context),
+        )
 
-        // Relaunch the main activity. The existing auto-restore logic in
-        // useLocationTracking will read AsyncStorage, see tracking_enabled=true,
-        // and restart the foreground service automatically.
+        // JS/runtime restore is most reliable after first user unlock.
+        // On many Android versions non-system apps cannot fully start background
+        // workloads until device unlock, so we trigger app restore only when
+        // the device is actually unlocked.
+        val userManager = context.getSystemService(UserManager::class.java)
+        val isUserUnlocked = userManager?.isUserUnlocked ?: true
+        if (!isUnlockAction && !isUserUnlocked) return
+
         val launchIntent = context.packageManager
             .getLaunchIntentForPackage(context.packageName)
             ?: return

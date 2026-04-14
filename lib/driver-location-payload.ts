@@ -63,7 +63,7 @@ export function buildDriverLocationPayload({
 
   return {
     carNumber: normalizedCarNumber,
-    deviceId: normalizedDeviceId,
+    deviceId: "",
     timestamp: formatPayloadTimestamp(location.timestamp),
     latitude: location.latitude,
     longitude: location.longitude,

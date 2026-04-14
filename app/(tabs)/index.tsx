@@ -5,6 +5,7 @@ import { TrackingControlDrawer } from "@/components/TrackingControlDrawer";
 import { TrackingMap } from "@/components/TrackingMap";
 import { useDriverProfile } from "@/hooks/use-driver-profile";
 import { useLocationTracking } from "@/hooks/use-location-tracking";
+import Constants from "expo-constants";
 import * as Location from "expo-location";
 import { Navigation, UserCircle2 } from "lucide-react-native";
 import React, {
@@ -18,6 +19,7 @@ import {
   Alert,
   AppState,
   Linking,
+  PermissionsAndroid,
   Platform,
   StyleSheet,
   Text,
@@ -91,6 +93,17 @@ const styles = StyleSheet.create({
 
 type OnboardingStep = "location" | "profile" | "map";
 
+const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
+const BATTERY_SETTINGS_ACTIONS = [
+  // Standard Android flows.
+  "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+  "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS",
+  // OEM-specific fallbacks commonly used by Xiaomi/Samsung/Vivo.
+  "miui.intent.action.POWER_HIDE_MODE_APP_LIST",
+  "com.samsung.android.sm.ACTION_BATTERY",
+  "com.vivo.abe.action.OPTIMIZATION_SETTINGS",
+] as const;
+
 export default function Index() {
   const {
     profile,
@@ -120,6 +133,7 @@ export default function Index() {
   >(null);
   const appStateRef = useRef(AppState.currentState);
   const waitingForSettingsReturn = useRef(false);
+  const hasShownBatteryOptimizationTipRef = useRef(false);
 
   const openDeviceLocationSettings = useCallback(async () => {
     waitingForSettingsReturn.current = true;
@@ -152,6 +166,74 @@ export default function Index() {
   const openAppLocationSettings = useCallback(async () => {
     waitingForSettingsReturn.current = true;
     await Linking.openSettings();
+  }, []);
+
+  const openAppNotificationSettings = useCallback(async () => {
+    waitingForSettingsReturn.current = true;
+
+    if (Platform.OS !== "android") {
+      await Linking.openSettings();
+      return;
+    }
+
+    try {
+      const packageName = Constants.expoConfig?.android?.package;
+      if (packageName) {
+        await Linking.sendIntent("android.settings.APP_NOTIFICATION_SETTINGS", [
+          {
+            key: "android.provider.extra.APP_PACKAGE",
+            value: packageName,
+          },
+        ]);
+        return;
+      }
+    } catch {
+      // Fall through to app settings.
+    }
+
+    await Linking.openSettings();
+  }, []);
+
+  const openBatteryOptimizationSettings = useCallback(async () => {
+    if (Platform.OS !== "android") {
+      return;
+    }
+
+    waitingForSettingsReturn.current = true;
+
+    for (const action of BATTERY_SETTINGS_ACTIONS) {
+      try {
+        await Linking.sendIntent(action);
+        return;
+      } catch {
+        // Try the next intent action.
+      }
+    }
+
+    await Linking.openSettings();
+  }, []);
+
+  const ensureNotificationPermission = useCallback(async () => {
+    if (Platform.OS !== "android") {
+      return true;
+    }
+
+    if (typeof Platform.Version !== "number" || Platform.Version < 33) {
+      return true;
+    }
+
+    const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+    if (!permission) {
+      return true;
+    }
+
+    const alreadyGranted = await PermissionsAndroid.check(permission);
+    if (alreadyGranted) {
+      return true;
+    }
+
+    const result = await PermissionsAndroid.request(permission);
+    return result === PermissionsAndroid.RESULTS.GRANTED;
   }, []);
 
   useEffect(() => {
@@ -312,10 +394,30 @@ export default function Index() {
     setIsToggleBusy(true);
     try {
       if (enabled) {
-        const canUseLocation = await checkLocationPermission(true, true);
+        const canShowNotification = await ensureNotificationPermission();
+        if (!canShowNotification) {
+          Alert.alert(
+            "Notification зөвшөөрөл хэрэгтэй",
+            "Tracking notification харагдахын тулд notification permission-ийг Allow болгоно уу.",
+            [
+              { text: "Болих", style: "cancel" },
+              {
+                text: "Notification settings",
+                onPress: () => {
+                  openAppNotificationSettings().catch(() => undefined);
+                },
+              },
+            ],
+          );
+          return;
+        }
+
+        const canUseLocation = await checkLocationPermission(true, !IS_EXPO_GO);
         if (!canUseLocation) {
           setLocationPopoverMessage(
-            "Always location permission болон GPS-ээ асаана уу",
+            IS_EXPO_GO
+              ? "Location permission болон GPS-ээ асаагаад Expo Go дээр foreground tracking шалгана уу"
+              : "Always location permission болон GPS-ээ асаана уу",
           );
           return;
         }
@@ -324,6 +426,24 @@ export default function Index() {
         if (!started) {
           setLocationPopoverMessage("Location-оо асаана уу");
           stopTracking();
+        } else if (
+          Platform.OS === "android" &&
+          !hasShownBatteryOptimizationTipRef.current
+        ) {
+          hasShownBatteryOptimizationTipRef.current = true;
+          Alert.alert(
+            "Battery хамгаалалт тохируулах",
+            "Зарим утсан дээр (Samsung, Xiaomi, Vivo) Background GPS тасалдахгүйн тулд энэ аппыг App Info > Battery > Unrestricted болгоно уу. Optimized хэвээр байвал tracking 10-20 минутын дараа зогсож магадгүй.",
+            [
+              { text: "Дараа нь", style: "cancel" },
+              {
+                text: "Тохиргоо нээх",
+                onPress: () => {
+                  openBatteryOptimizationSettings().catch(() => undefined);
+                },
+              },
+            ],
+          );
         }
       } else {
         stopTracking();
@@ -348,7 +468,6 @@ export default function Index() {
   };
 
   const handleDeleteAccount = async () => {
-    stopTracking();
     await resetProfile();
     setHasStartedOnboarding(false);
     setShowProfileSettings(false);
@@ -413,7 +532,12 @@ export default function Index() {
 
       <View style={styles.mainContent}>
         {currentStep === "location" && (
-          <LocationPermissionStep onRequestLocation={handleRequestLocation} />
+          <LocationPermissionStep
+            onRequestLocation={handleRequestLocation}
+            onOpenBatterySettings={() => {
+              openBatteryOptimizationSettings().catch(() => undefined);
+            }}
+          />
         )}
 
         {currentStep === "profile" && (
@@ -448,6 +572,9 @@ export default function Index() {
         onToggleTracking={toggleTracking}
         locationPopoverMessage={locationPopoverMessage}
         trackingDebugStatus={trackingDebugStatus}
+        onOpenBatterySettings={() => {
+          openBatteryOptimizationSettings().catch(() => undefined);
+        }}
       />
 
       {/* Profile Settings Modal */}

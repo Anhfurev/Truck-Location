@@ -1,6 +1,5 @@
 package expo.modules.trackingnative
 
-import android.content.Context
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -12,11 +11,6 @@ import expo.modules.kotlin.modules.ModuleDefinition
  */
 class TrackingNativeModule : Module() {
 
-    companion object {
-        private const val PREFS_NAME = "trucklocation_tracking"
-        private const val KEY_TRACKING_ENABLED = "tracking_enabled"
-    }
-
     override fun definition() = ModuleDefinition {
         Name("TrackingNative")
 
@@ -24,11 +18,22 @@ class TrackingNativeModule : Module() {
             val context = appContext.reactContext
                 ?: throw Exception("React context is not available")
 
-            context
-                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_TRACKING_ENABLED, enabled)
-                .apply()
+            TrackingPersistence.setTrackingEnabled(context, enabled)
+        }
+
+        AsyncFunction("startPersistentService") { notificationTitle: String?, notificationBody: String? ->
+            val context = appContext.reactContext
+                ?: throw Exception("React context is not available")
+
+            TrackingPersistence.persistNotification(context, notificationTitle, notificationBody)
+            PersistentTrackingService.start(context, notificationTitle, notificationBody)
+        }
+
+        AsyncFunction("stopPersistentService") {
+            val context = appContext.reactContext
+                ?: throw Exception("React context is not available")
+
+            PersistentTrackingService.stop(context)
         }
     }
 }

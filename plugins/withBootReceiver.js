@@ -31,39 +31,88 @@ function withBootReceiver(config) {
     }
 
     const app = manifest.application[0];
+    if (!app.service) {
+      app.service = [];
+    }
     if (!app.receiver) {
       app.receiver = [];
     }
 
-    const RECEIVER_CLASS = "expo.modules.trackingnative.BootReceiver";
-    if (!app.receiver.some((r) => r.$?.["android:name"] === RECEIVER_CLASS)) {
-      app.receiver.push({
-        $: {
-          "android:name": RECEIVER_CLASS,
-          "android:enabled": "true",
-          "android:exported": "true",
-        },
-        "intent-filter": [
-          {
-            action: [
-              // Standard Android reboot
-              { $: { "android:name": "android.intent.action.BOOT_COMPLETED" } },
-              // Fast-boot / quick-boot on certain OEM devices (e.g. HTC, Huawei)
-              {
-                $: {
-                  "android:name": "android.intent.action.QUICKBOOT_POWERON",
-                },
-              },
-              {
-                $: {
-                  "android:name": "com.htc.intent.action.QUICKBOOT_POWERON",
-                },
-              },
-            ],
-          },
-        ],
-      });
+    const SERVICE_CLASS =
+      "expo.modules.trackingnative.PersistentTrackingService";
+    let service = app.service.find((s) => s.$?.["android:name"] === SERVICE_CLASS);
+    if (!service) {
+      service = { $: { "android:name": SERVICE_CLASS } };
+      app.service.push(service);
     }
+    service.$ = {
+      ...(service.$ ?? {}),
+      "android:name": SERVICE_CLASS,
+      "android:enabled": "true",
+      "android:exported": "false",
+      "android:foregroundServiceType": "location",
+      "android:stopWithTask": "false",
+    };
+
+    const RECEIVER_CLASS = "expo.modules.trackingnative.BootReceiver";
+    let bootReceiver = app.receiver.find(
+      (r) => r.$?.["android:name"] === RECEIVER_CLASS,
+    );
+    if (!bootReceiver) {
+      bootReceiver = { $: { "android:name": RECEIVER_CLASS } };
+      app.receiver.push(bootReceiver);
+    }
+
+    bootReceiver.$ = {
+      ...(bootReceiver.$ ?? {}),
+      "android:name": RECEIVER_CLASS,
+      "android:enabled": "true",
+      "android:exported": "true",
+      "android:directBootAware": "true",
+    };
+
+    if (!bootReceiver["intent-filter"]) {
+      bootReceiver["intent-filter"] = [{ action: [] }];
+    }
+    if (!Array.isArray(bootReceiver["intent-filter"])) {
+      bootReceiver["intent-filter"] = [bootReceiver["intent-filter"]];
+    }
+    if (!bootReceiver["intent-filter"][0]) {
+      bootReceiver["intent-filter"][0] = { action: [] };
+    }
+    if (!bootReceiver["intent-filter"][0].action) {
+      bootReceiver["intent-filter"][0].action = [];
+    }
+
+    const actions = bootReceiver["intent-filter"][0].action;
+    const requiredActions = [
+      "android.intent.action.BOOT_COMPLETED",
+      "android.intent.action.LOCKED_BOOT_COMPLETED",
+      "android.intent.action.USER_UNLOCKED",
+      "android.intent.action.QUICKBOOT_POWERON",
+      "com.htc.intent.action.QUICKBOOT_POWERON",
+    ];
+    for (const actionName of requiredActions) {
+      if (!actions.some((a) => a.$?.["android:name"] === actionName)) {
+        actions.push({ $: { "android:name": actionName } });
+      }
+    }
+
+    const RESTART_RECEIVER_CLASS =
+      "expo.modules.trackingnative.TrackingRestartReceiver";
+    let restartReceiver = app.receiver.find(
+      (r) => r.$?.["android:name"] === RESTART_RECEIVER_CLASS,
+    );
+    if (!restartReceiver) {
+      restartReceiver = { $: { "android:name": RESTART_RECEIVER_CLASS } };
+      app.receiver.push(restartReceiver);
+    }
+    restartReceiver.$ = {
+      ...(restartReceiver.$ ?? {}),
+      "android:name": RESTART_RECEIVER_CLASS,
+      "android:enabled": "true",
+      "android:exported": "false",
+    };
 
     return cfg;
   });

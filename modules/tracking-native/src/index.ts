@@ -2,6 +2,11 @@ import { Platform } from "react-native";
 
 type TrackingNativeModuleType = {
   setTrackingEnabled(enabled: boolean): Promise<void>;
+  startPersistentService(
+    notificationTitle?: string,
+    notificationBody?: string,
+  ): Promise<void>;
+  stopPersistentService(): Promise<void>;
 };
 
 let _native: TrackingNativeModuleType | null = null;
@@ -12,7 +17,7 @@ if (Platform.OS === "android") {
     // Falls back silently in Expo Go or on web.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { requireNativeModule } = require("expo-modules-core");
-    _native = requireNativeModule<TrackingNativeModuleType>("TrackingNative");
+    _native = requireNativeModule("TrackingNative") as TrackingNativeModuleType;
   } catch {
     // Non-fatal – boot-restore will not work but app tracking still functions.
   }
@@ -30,5 +35,20 @@ export async function setNativeTrackingEnabled(
 ): Promise<void> {
   if (_native) {
     await _native.setTrackingEnabled(enabled);
+  }
+}
+
+export async function startNativePersistentService(
+  notificationTitle?: string,
+  notificationBody?: string,
+): Promise<void> {
+  if (_native) {
+    await _native.startPersistentService(notificationTitle, notificationBody);
+  }
+}
+
+export async function stopNativePersistentService(): Promise<void> {
+  if (_native) {
+    await _native.stopPersistentService();
   }
 }

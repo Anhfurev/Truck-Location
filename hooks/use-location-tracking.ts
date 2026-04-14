@@ -11,6 +11,7 @@ import {
 } from "@/lib/location-tracking-service";
 import { DriverLocationPayload } from "@/types/DriverLocationPayload";
 import { DriverProfile } from "@/types/DriverProfile";
+import Constants from "expo-constants";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
@@ -20,6 +21,9 @@ type LocationData = TrackedLocationPoint;
 const INITIAL_LOCATION_MAX_AGE_MS = 10_000;
 const INITIAL_LOCATION_REQUIRED_ACCURACY_METERS = 50;
 const LIVE_LOCATION_REQUIRED_ACCURACY_METERS = 150;
+const LOCATION_UPDATE_INTERVAL_MS = 5000;
+const PENDING_PAYLOAD_FLUSH_INTERVAL_MS = 5000;
+const IS_EXPO_GO = Constants.executionEnvironment === "storeClient";
 
 const toast = {
   success: (message: string) => console.log("[ok]", message),
@@ -73,6 +77,10 @@ export function useLocationTracking(
       return true;
     }
 
+    if (IS_EXPO_GO) {
+      return false;
+    }
+
     const [foregroundPermission, backgroundPermission, servicesEnabled] =
       await Promise.all([
         Location.getForegroundPermissionsAsync(),
@@ -96,17 +104,20 @@ export function useLocationTracking(
     }
 
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.BestForNavigation,
-      distanceInterval: 0,
-      timeInterval: 5000,
-      pausesUpdatesAutomatically: false,
-      showsBackgroundLocationIndicator: true,
+      accuracy: Location.Accuracy.High,
+      timeInterval: LOCATION_UPDATE_INTERVAL_MS,
+      distanceInterval: 10,
       foregroundService: {
-        notificationTitle,
-        notificationBody,
-        notificationColor: "#2563eb",
+        notificationTitle: notificationTitle || "Ачаа Тээврийн Хяналт",
+        notificationBody: notificationBody || "Байршил дамжуулж байна...",
+        notificationColor: "#3B82F6",
+        // Expo's Android equivalent to "stopOnTerminate: false".
         killServiceOnDestroy: false,
       },
+      pausesUpdatesAutomatically: false,
+      deferredUpdatesInterval: 1000,
+      deferredUpdatesDistance: 1,
+      showsBackgroundLocationIndicator: true,
     });
 
     return true;
@@ -146,6 +157,7 @@ export function useLocationTracking(
         speed: position.coords.speed ?? null,
         headingDegree: position.coords.heading ?? null,
       };
+
       updateCurrentLocation(nextLocation);
       processTrackedLocation(nextLocation)
         .then((payload) => {
@@ -163,29 +175,6 @@ export function useLocationTracking(
     [refreshTrackingDebugStatus, updateCurrentLocation],
   );
 
-  const startForegroundWatcher = useCallback(async () => {
-    if (locationSubscriptionRef.current) {
-      locationSubscriptionRef.current.remove();
-      locationSubscriptionRef.current = null;
-    }
-
-    locationSubscriptionRef.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.BestForNavigation,
-        mayShowUserSettingsDialog: true,
-        distanceInterval: 0,
-        timeInterval: 5000,
-      },
-      (position) => {
-        if (
-          isAccurateEnough(position, LIVE_LOCATION_REQUIRED_ACCURACY_METERS)
-        ) {
-          applyLocation(position);
-        }
-      },
-    );
-  }, [applyLocation]);
-
   const isAccurateEnough = (
     position: Location.LocationObject | null,
     maxAccuracyMeters: number,
@@ -201,6 +190,29 @@ export function useLocationTracking(
 
     return accuracy <= maxAccuracyMeters;
   };
+
+  const startForegroundWatcher = useCallback(async () => {
+    if (locationSubscriptionRef.current) {
+      locationSubscriptionRef.current.remove();
+      locationSubscriptionRef.current = null;
+    }
+
+    locationSubscriptionRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        mayShowUserSettingsDialog: true,
+        distanceInterval: 0,
+        timeInterval: LOCATION_UPDATE_INTERVAL_MS,
+      },
+      (position) => {
+        if (
+          isAccurateEnough(position, LIVE_LOCATION_REQUIRED_ACCURACY_METERS)
+        ) {
+          applyLocation(position);
+        }
+      },
+    );
+  }, [applyLocation]);
 
   const getFreshInitialPosition = async () => {
     const current = await getCurrentPositionWithTimeout(
@@ -247,25 +259,32 @@ export function useLocationTracking(
         locationSubscriptionRef.current = null;
       }
 
-      const backgroundStarted = await ensureBackgroundTrackingActive();
-      if (!backgroundStarted) {
-        toast.error("Background location зөвшөөрөл хэрэгтэй байна");
-        return false;
+      let backgroundStarted = false;
+      if (!IS_EXPO_GO) {
+        backgroundStarted = await ensureBackgroundTrackingActive();
+        if (!backgroundStarted) {
+          toast.error("Background location зөвшөөрөл хэрэгтэй байна");
+          return false;
+        }
       }
 
       await setTrackingEnabled(true);
       setShouldRestoreTracking(true);
 
-      // Permissions and GPS already validated by the caller — start immediately.
       setIsTracking(true);
       setIsLocating(true);
-      toast.success("Байршил хяналт идэвхжлээ");
+      if (IS_EXPO_GO) {
+        toast.info(
+          "Expo Go дээр зөвхөн app нээлттэй үед tracking шалгаж болно.",
+        );
+      } else {
+        toast.success("Байршил хяналт идэвхжлээ");
+      }
 
       await startForegroundWatcher();
       flushPendingPayloads().catch(() => undefined);
       refreshTrackingDebugStatus();
 
-      // Acquire a fresh fix in background (do not block toggle responsiveness).
       getFreshInitialPosition()
         .then((initial) => {
           if (
@@ -334,7 +353,6 @@ export function useLocationTracking(
         setShouldRestoreTracking(false);
       });
 
-    flushPendingPayloads().catch(() => undefined);
     refreshTrackingDebugStatus();
 
     return () => {
@@ -353,7 +371,19 @@ export function useLocationTracking(
   }, [refreshTrackingDebugStatus]);
 
   useEffect(() => {
-    if (!isProfileComplete) {
+    if (!isTracking || Platform.OS === "web") {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      flushPendingPayloads().catch(() => undefined);
+    }, PENDING_PAYLOAD_FLUSH_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [isTracking]);
+
+  useEffect(() => {
+    if (!isProfileComplete || IS_EXPO_GO) {
       return;
     }
 
@@ -370,7 +400,10 @@ export function useLocationTracking(
         }
 
         setIsTracking(true);
-        return startForegroundWatcher();
+        return startForegroundWatcher().then(() => {
+          flushPendingPayloads().catch(() => undefined);
+          refreshTrackingDebugStatus();
+        });
       })
       .catch((error) => {
         console.error("Failed to restore tracking state:", error);
@@ -378,6 +411,7 @@ export function useLocationTracking(
   }, [
     ensureBackgroundTrackingActive,
     isProfileComplete,
+    refreshTrackingDebugStatus,
     shouldRestoreTracking,
     startForegroundWatcher,
   ]);

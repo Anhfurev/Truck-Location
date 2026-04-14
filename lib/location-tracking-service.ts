@@ -1,6 +1,10 @@
 import { buildDriverLocationPayload } from "@/lib/driver-location-payload";
 import { isDriverProfileValid } from "@/lib/driver-profile-validation";
-import { setNativeTrackingEnabled } from "@/modules/tracking-native/src";
+import {
+  setNativeTrackingEnabled,
+  startNativePersistentService,
+  stopNativePersistentService,
+} from "@/modules/tracking-native/src";
 import { DriverLocationPayload } from "@/types/DriverLocationPayload";
 import { DriverProfile } from "@/types/DriverProfile";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -18,15 +22,19 @@ export interface TrackedLocationPoint {
 }
 
 const DRIVER_PROFILE_STORAGE_KEY = "driver_profile";
+const TRACKING_PROFILE_SNAPSHOT_STORAGE_KEY = "tracking_profile_snapshot";
 const TRACKING_ENABLED_STORAGE_KEY = "tracking_enabled";
 const LAST_LOCATION_STORAGE_KEY = "last_known_location";
 const LAST_PAYLOAD_STORAGE_KEY = "last_sent_payload";
 const PENDING_PAYLOADS_STORAGE_KEY = "pending_gps_payloads";
 const TRACKING_DEBUG_STATUS_KEY = "tracking_debug_status";
+const TRACKING_RETRY_STATE_KEY = "tracking_retry_state";
 const GPS_ENDPOINT = "https://ai-tos.mn/api/gps/data";
-const MAX_QUEUE_SIZE = 500;
+const MAX_QUEUE_SIZE = 120;
 const BACKGROUND_ACCEPTABLE_ACCURACY_METERS = 150;
 const GPS_REQUEST_TIMEOUT_MS = 15000;
+const INITIAL_RETRY_BACKOFF_MS = 5000;
+const MAX_RETRY_BACKOFF_MS = 60000;
 
 export const BACKGROUND_LOCATION_TASK_NAME =
   "trucklocation-background-location";
@@ -40,6 +48,15 @@ export interface TrackingDebugStatus {
   lastResponseText: string | null;
   lastError: string | null;
   lastPayload: DriverLocationPayload | null;
+}
+
+let consecutivePostFailures = 0;
+let nextRetryAt = 0;
+let retryStateHydrated = false;
+
+interface TrackingRetryState {
+  consecutivePostFailures: number;
+  nextRetryAt: number;
 }
 
 function debugTrackingLog(message: string, data?: unknown): void {
@@ -57,6 +74,84 @@ function debugTrackingLog(message: string, data?: unknown): void {
 
 function formatPayloadForDebug(payload: DriverLocationPayload): string {
   return JSON.stringify(payload);
+}
+
+function getDefaultTrackingRetryState(): TrackingRetryState {
+  return {
+    consecutivePostFailures: 0,
+    nextRetryAt: 0,
+  };
+}
+
+function sanitizeTrackingRetryState(input: unknown): TrackingRetryState {
+  const source =
+    input && typeof input === "object"
+      ? (input as Partial<TrackingRetryState>)
+      : {};
+
+  return {
+    consecutivePostFailures:
+      typeof source.consecutivePostFailures === "number" &&
+      Number.isFinite(source.consecutivePostFailures)
+        ? source.consecutivePostFailures
+        : 0,
+    nextRetryAt:
+      typeof source.nextRetryAt === "number" &&
+      Number.isFinite(source.nextRetryAt)
+        ? source.nextRetryAt
+        : 0,
+  };
+}
+
+async function ensureRetryStateHydrated(): Promise<void> {
+  if (retryStateHydrated) {
+    return;
+  }
+
+  const rawRetryState = await AsyncStorage.getItem(TRACKING_RETRY_STATE_KEY);
+  const retryState = sanitizeTrackingRetryState(
+    parseJson(rawRetryState, getDefaultTrackingRetryState()),
+  );
+
+  consecutivePostFailures = retryState.consecutivePostFailures;
+  nextRetryAt = retryState.nextRetryAt;
+  retryStateHydrated = true;
+}
+
+async function persistRetryState(): Promise<void> {
+  await AsyncStorage.setItem(
+    TRACKING_RETRY_STATE_KEY,
+    JSON.stringify({
+      consecutivePostFailures,
+      nextRetryAt,
+    } satisfies TrackingRetryState),
+  );
+}
+
+async function getRetryBackoffRemainingMs(): Promise<number> {
+  await ensureRetryStateHydrated();
+  return Math.max(0, nextRetryAt - Date.now());
+}
+
+async function resetRetryBackoff(): Promise<void> {
+  await ensureRetryStateHydrated();
+  consecutivePostFailures = 0;
+  nextRetryAt = 0;
+  await AsyncStorage.removeItem(TRACKING_RETRY_STATE_KEY);
+}
+
+async function scheduleRetryBackoff(): Promise<number> {
+  await ensureRetryStateHydrated();
+  consecutivePostFailures += 1;
+
+  const delayMs = Math.min(
+    INITIAL_RETRY_BACKOFF_MS * 2 ** Math.max(0, consecutivePostFailures - 1),
+    MAX_RETRY_BACKOFF_MS,
+  );
+
+  nextRetryAt = Date.now() + delayMs;
+  await persistRetryState();
+  return delayMs;
 }
 
 function getDefaultTrackingDebugStatus(): TrackingDebugStatus {
@@ -253,6 +348,15 @@ async function getStoredProfile(): Promise<DriverProfile | null> {
   return isDriverProfileValid(profile) ? profile : null;
 }
 
+async function getStoredTrackingProfileSnapshot(): Promise<DriverProfile | null> {
+  const rawProfile = await AsyncStorage.getItem(
+    TRACKING_PROFILE_SNAPSHOT_STORAGE_KEY,
+  );
+  const profile = sanitizeProfile(parseJson(rawProfile, {}));
+
+  return isDriverProfileValid(profile) ? profile : null;
+}
+
 async function getPendingPayloads(): Promise<DriverLocationPayload[]> {
   const rawQueue = await AsyncStorage.getItem(PENDING_PAYLOADS_STORAGE_KEY);
   const queue = parseJson<unknown[]>(rawQueue, []);
@@ -269,18 +373,28 @@ async function getPendingPayloads(): Promise<DriverLocationPayload[]> {
 async function setPendingPayloads(
   payloads: DriverLocationPayload[],
 ): Promise<void> {
+  const trimmedPayloads = payloads.slice(-MAX_QUEUE_SIZE);
+
   if (payloads.length === 0) {
     await AsyncStorage.removeItem(PENDING_PAYLOADS_STORAGE_KEY);
     await updateTrackingDebugStatus({ queueCount: 0 });
     return;
   }
 
+  if (trimmedPayloads.length !== payloads.length) {
+    debugTrackingLog("trimmed pending payload queue", {
+      previousCount: payloads.length,
+      keptCount: trimmedPayloads.length,
+      droppedCount: payloads.length - trimmedPayloads.length,
+    });
+  }
+
   await AsyncStorage.setItem(
     PENDING_PAYLOADS_STORAGE_KEY,
-    JSON.stringify(payloads.slice(-MAX_QUEUE_SIZE)),
+    JSON.stringify(trimmedPayloads),
   );
   await updateTrackingDebugStatus({
-    queueCount: Math.min(payloads.length, MAX_QUEUE_SIZE),
+    queueCount: trimmedPayloads.length,
   });
 }
 
@@ -326,23 +440,7 @@ async function postPayload(payload: DriverLocationPayload): Promise<void> {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        carNumber: normalizedPayload.carNumber,
-        deviceId: "",
-        timestamp: normalizedPayload.timestamp,
-        latitude: normalizedPayload.latitude,
-        longitude: normalizedPayload.longitude,
-        speed: normalizedPayload.speed,
-        headingDegree: normalizedPayload.headingDegree,
-        other: {
-          ignitionStatus: true,
-          batteryVoltage: 12.6,
-          gpsAccuracyHdop: 0.8,
-          satellitesInView: 12,
-          gsmSignalStrengthDbm: -92,
-          eventCode: 102,
-        },
-      }),
+      body: JSON.stringify(normalizedPayload),
     });
   } catch (error) {
     const message =
@@ -351,12 +449,19 @@ async function postPayload(payload: DriverLocationPayload): Promise<void> {
         : error instanceof Error
           ? error.message
           : String(error);
+    const retryInMs = await scheduleRetryBackoff();
 
     await updateTrackingDebugStatus({
       lastFailureAt: new Date().toISOString(),
       lastResponseStatus: null,
       lastResponseText: null,
-      lastError: message,
+      lastError: `${message} (retry in ${retryInMs}ms)`,
+    });
+
+    debugTrackingLog("retry backoff scheduled", {
+      retryInMs,
+      consecutivePostFailures,
+      reason: message,
     });
 
     throw new Error(message);
@@ -367,12 +472,19 @@ async function postPayload(payload: DriverLocationPayload): Promise<void> {
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
     const message = `GPS API request failed (${response.status}): ${errorText || "unknown"}`;
+    const retryInMs = await scheduleRetryBackoff();
 
     await updateTrackingDebugStatus({
       lastFailureAt: new Date().toISOString(),
       lastResponseStatus: response.status,
       lastResponseText: errorText || null,
-      lastError: message,
+      lastError: `${message} (retry in ${retryInMs}ms)`,
+    });
+
+    debugTrackingLog("retry backoff scheduled", {
+      retryInMs,
+      consecutivePostFailures,
+      reason: message,
     });
 
     throw new Error(message);
@@ -390,6 +502,7 @@ async function postPayload(payload: DriverLocationPayload): Promise<void> {
     lastResponseText: responseText || null,
     lastError: null,
   });
+  await resetRetryBackoff();
   debugTrackingLog("POST gps payload success", {
     status: response.status,
     carNumber: normalizedPayload.carNumber,
@@ -414,6 +527,33 @@ export async function setTrackingEnabled(enabled: boolean): Promise<void> {
   // Mirror to Android SharedPreferences so BootReceiver can read the state
   // after a reboot without requiring the JS runtime to be running first.
   setNativeTrackingEnabled(enabled).catch(() => undefined);
+
+  if (enabled) {
+    const profile = await getStoredProfile();
+    if (profile) {
+      await AsyncStorage.setItem(
+        TRACKING_PROFILE_SNAPSHOT_STORAGE_KEY,
+        JSON.stringify(profile),
+      );
+    }
+    const carNumber = profile?.carNumber?.trim() ?? "";
+    const notificationTitle = carNumber
+      ? `${carNumber} байршил хуваалцаж байна`
+      : "Truck Location идэвхтэй байна";
+    const notificationBody = carNumber
+      ? "Систем таны байршлыг тасралтгүй хянаж байна."
+      : "Систем таны байршлыг тасралтгүй хянаж байна.";
+
+    startNativePersistentService(notificationTitle, notificationBody).catch(
+      () => undefined,
+    );
+    return;
+  }
+
+  stopNativePersistentService().catch(() => undefined);
+  AsyncStorage.removeItem(TRACKING_PROFILE_SNAPSHOT_STORAGE_KEY).catch(
+    () => undefined,
+  );
 }
 
 export async function getTrackingEnabled(): Promise<boolean> {
@@ -445,6 +585,15 @@ export async function flushPendingPayloads(): Promise<void> {
       return;
     }
 
+    const retryBackoffRemainingMs = await getRetryBackoffRemainingMs();
+    if (retryBackoffRemainingMs > 0) {
+      debugTrackingLog("flush pending payloads deferred", {
+        count: queue.length,
+        retryInMs: retryBackoffRemainingMs,
+      });
+      return;
+    }
+
     debugTrackingLog("flush pending payloads start", {
       count: queue.length,
     });
@@ -457,11 +606,6 @@ export async function flushPendingPayloads(): Promise<void> {
       try {
         await postPayload(payload);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await updateTrackingDebugStatus({
-          lastFailureAt: new Date().toISOString(),
-          lastError: message,
-        });
         remainingPayloads.push(...queue.slice(index));
         debugTrackingLog("flush pending payloads paused", {
           remaining: queue.length - index,
@@ -494,7 +638,8 @@ export async function processTrackedLocation(
     JSON.stringify(location),
   );
 
-  const profile = await getStoredProfile();
+  const profile =
+    (await getStoredProfile()) ?? (await getStoredTrackingProfileSnapshot());
   if (!profile) {
     debugTrackingLog("skip tracked location because profile is incomplete");
     return null;
@@ -502,11 +647,21 @@ export async function processTrackedLocation(
 
   const payload = buildDriverLocationPayload({ location, profile });
   debugTrackingLog("built gps payload", formatPayloadForDebug(payload));
-  await AsyncStorage.setItem(LAST_PAYLOAD_STORAGE_KEY, JSON.stringify(payload));
-
   await enqueueSync(async () => {
     const queue = await getPendingPayloads();
     let unsentQueue = [...queue];
+
+    const retryBackoffRemainingMs = await getRetryBackoffRemainingMs();
+    if (retryBackoffRemainingMs > 0) {
+      const nextQueue = [...unsentQueue, payload].slice(-MAX_QUEUE_SIZE);
+      await setPendingPayloads(nextQueue);
+      debugTrackingLog("queued payload during retry backoff", {
+        queueSize: nextQueue.length,
+        retryInMs: retryBackoffRemainingMs,
+        timestamp: payload.timestamp,
+      });
+      return;
+    }
 
     if (queue.length > 0) {
       const remainingPayloads: DriverLocationPayload[] = [];
@@ -519,12 +674,6 @@ export async function processTrackedLocation(
         } catch (error) {
           remainingPayloads.push(...queue.slice(index));
           await setPendingPayloads([...remainingPayloads, payload]);
-          const message =
-            error instanceof Error ? error.message : String(error);
-          await updateTrackingDebugStatus({
-            lastFailureAt: new Date().toISOString(),
-            lastError: message,
-          });
           debugTrackingLog("queued current payload because flush failed", {
             queueSize: remainingPayloads.length + 1,
             payload: formatPayloadForDebug(payload),
@@ -543,11 +692,6 @@ export async function processTrackedLocation(
     } catch (error) {
       const nextQueue = [...unsentQueue, payload].slice(-MAX_QUEUE_SIZE);
       await setPendingPayloads(nextQueue);
-      const message = error instanceof Error ? error.message : String(error);
-      await updateTrackingDebugStatus({
-        lastFailureAt: new Date().toISOString(),
-        lastError: message,
-      });
       debugTrackingLog("payload queued locally", {
         queueSize: nextQueue.length,
         carNumber: payload.carNumber,

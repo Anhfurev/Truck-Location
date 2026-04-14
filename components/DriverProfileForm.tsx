@@ -75,6 +75,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     fontSize: 13,
+    color: "#333",
     backgroundColor: "#fff",
   },
   inputCompact: {
@@ -137,12 +138,9 @@ export function DriverProfileForm({
           <Text style={styles.labelText}>Автомашины дугаар</Text>
         </View>
         <TextInput
-          style={[
-            styles.input,
-            effectiveCompact && styles.inputCompact,
-            { textTransform: "uppercase" },
-          ]}
+          style={[styles.input, effectiveCompact && styles.inputCompact]}
           placeholder="Ж нь: 1123УНА"
+          placeholderTextColor="#94a3b8"
           value={profile.carNumber}
           onChangeText={(text) =>
             onUpdate({ carNumber: text.replace(/\s+/g, "").toUpperCase() })
@@ -151,6 +149,8 @@ export function DriverProfileForm({
           autoCapitalize="characters"
           autoCorrect={false}
           maxLength={7}
+          selectionColor="#0f172a"
+          cursorColor="#0f172a"
         />
         <View style={styles.helperCard}>
           <Text style={styles.helperText}>
